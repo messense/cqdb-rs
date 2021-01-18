@@ -1,3 +1,5 @@
+#![allow(non_camel_case_types)]
+
 use libc::{
     calloc, ferror, free, fseek, ftell, fwrite, memcmp, memset, realloc, strcmp, strlen, strncpy,
     FILE,
@@ -98,11 +100,7 @@ unsafe extern "C" fn write_data(
     fwrite(data, size, 1, (*wt).fp)
 }
 #[no_mangle]
-pub unsafe extern "C" fn cqdb_writer(
-    fp: *mut FILE,
-    flag: libc::c_int,
-) -> *mut cqdb_writer_t {
-    let mut i: libc::c_int = 0;
+pub unsafe extern "C" fn cqdb_writer(fp: *mut FILE, flag: libc::c_int) -> *mut cqdb_writer_t {
     let mut dbw: *mut cqdb_writer_t =
         calloc(1, ::std::mem::size_of::<cqdb_writer_t>()) as *mut cqdb_writer_t;
     if !dbw.is_null() {
@@ -120,7 +118,7 @@ pub unsafe extern "C" fn cqdb_writer(
             .wrapping_add((::std::mem::size_of::<tableref_t>() as libc::c_ulong).wrapping_mul(256))
             as u32;
         /* Initialize the hash tables.*/
-        i = 0_i32;
+        let mut i = 0_i32;
         while i < 256_i32 {
             (*dbw).ht[i as usize].bucket = std::ptr::null_mut::<bucket_t>();
             i += 1
@@ -143,9 +141,8 @@ pub unsafe extern "C" fn cqdb_writer(
     dbw
 }
 unsafe extern "C" fn cqdb_writer_delete(dbw: *mut cqdb_writer_t) -> libc::c_int {
-    let mut i: libc::c_int = 0;
     /* Free allocated memory blocks. */
-    i = 0_i32;
+    let mut i = 0_i32;
     while i < 256_i32 {
         free((*dbw).ht[i as usize].bucket as *mut libc::c_void);
         i += 1
@@ -232,8 +229,7 @@ pub unsafe extern "C" fn cqdb_writer_put(
                             2539196295672303199 => {}
                             _ => {
                                 if (*dbw).bwd_num <= id as u32 {
-                                    (*dbw).bwd_num =
-                                        (id as u32).wrapping_add(1_i32 as libc::c_uint)
+                                    (*dbw).bwd_num = (id as u32).wrapping_add(1_i32 as libc::c_uint)
                                 }
                                 *(*dbw).bwd.offset(id as isize) = (*dbw).cur;
                                 current_block = 9853141518545631134;
@@ -264,11 +260,7 @@ pub unsafe extern "C" fn cqdb_writer_put(
 #[no_mangle]
 pub unsafe extern "C" fn cqdb_writer_close(mut dbw: *mut cqdb_writer_t) -> libc::c_int {
     let current_block: u64;
-    let mut i: u32 = 0;
-    let mut j: u32 = 0;
-    let mut k: libc::c_int = 0;
     let mut ret: libc::c_int = 0;
-    let mut offset: libc::c_long = 0;
     let mut header: header_t = header_t {
         chunkid: [0; 4],
         size: 0,
@@ -296,7 +288,7 @@ pub unsafe extern "C" fn cqdb_writer_close(mut dbw: *mut cqdb_writer_t) -> libc:
        Store the hash tables. At this moment, the file pointer refers to
        the offset succeeding the last key/data pair.
     */
-    i = 0;
+    let mut i = 0;
     loop {
         if i >= 256_i32 as libc::c_uint {
             current_block = 1538046216550696469;
@@ -321,13 +313,12 @@ pub unsafe extern "C" fn cqdb_writer_close(mut dbw: *mut cqdb_writer_t) -> libc:
                 /*
                    Put hash elements to the bucket with the open-address method.
                 */
-                j = 0;
+                let mut j = 0;
                 while j < (*ht).num {
                     let src: *const bucket_t =
                         &mut *(*ht).bucket.offset(j as isize) as *mut bucket_t;
-                    let mut k_0: libc::c_int = ((*src).hash >> 8_i32)
-                        .wrapping_rem(n as libc::c_uint)
-                        as libc::c_int;
+                    let mut k_0: libc::c_int =
+                        ((*src).hash >> 8_i32).wrapping_rem(n as libc::c_uint) as libc::c_int;
                     /* Find a vacant element. */
                     while (*dst.offset(k_0 as isize)).offset != 0 {
                         k_0 = (k_0 + 1) % n as i32
@@ -338,7 +329,7 @@ pub unsafe extern "C" fn cqdb_writer_close(mut dbw: *mut cqdb_writer_t) -> libc:
                     j = j.wrapping_add(1)
                 }
                 /* Write the bucket. */
-                k = 0;
+                let mut k = 0;
                 while k < n as i32 {
                     write_uint32(dbw, (*dst.offset(k as isize)).hash);
                     write_uint32(dbw, (*dst.offset(k as isize)).offset);
@@ -369,15 +360,13 @@ pub unsafe extern "C" fn cqdb_writer_close(mut dbw: *mut cqdb_writer_t) -> libc:
                 ret = CQDB_ERROR_FILEWRITE as libc::c_int
             } else {
                 /* Store the current position. */
-                offset = ftell((*dbw).fp);
+                let offset = ftell((*dbw).fp);
                 if offset == -1_i32 as libc::c_long {
                     ret = CQDB_ERROR_FILETELL as libc::c_int
                 } else {
                     header.size = (offset as u32).wrapping_sub((*dbw).begin);
                     /* Rewind the current position to the beginning. */
-                    if fseek((*dbw).fp, (*dbw).begin as libc::c_long, 0_i32)
-                        != 0_i32
-                    {
+                    if fseek((*dbw).fp, (*dbw).begin as libc::c_long, 0_i32) != 0_i32 {
                         ret = CQDB_ERROR_FILESEEK as libc::c_int
                     } else {
                         /* Write the file header. */
@@ -447,8 +436,7 @@ pub unsafe extern "C" fn cqdb_writer_close(mut dbw: *mut cqdb_writer_t) -> libc:
     ret
 }
 unsafe extern "C" fn read_uint32(p: *const u8) -> u32 {
-    let mut value: u32 = 0;
-    value = *p.offset(0_i32 as isize) as u32;
+    let mut value = *p.offset(0_i32 as isize) as u32;
     value |= (*p.offset(1_i32 as isize) as u32) << 8_i32;
     value |= (*p.offset(2_i32 as isize) as u32) << 16_i32;
     value |= (*p.offset(3_i32 as isize) as u32) << 24_i32;
@@ -462,10 +450,9 @@ unsafe extern "C" fn read_tableref(mut ref_0: *mut tableref_t, mut p: *const u8)
     p
 }
 unsafe extern "C" fn read_bucket(mut p: *const u8, num: u32) -> *mut bucket_t {
-    let mut i: u32 = 0;
     let bucket: *mut bucket_t =
         calloc(num as usize, ::std::mem::size_of::<bucket_t>()) as *mut bucket_t;
-    i = 0_i32 as u32;
+    let mut i = 0_u32;
     while i < num {
         (*bucket.offset(i as isize)).hash = read_uint32(p);
         p = p.offset(::std::mem::size_of::<u32>() as libc::c_ulong as isize);
@@ -476,9 +463,8 @@ unsafe extern "C" fn read_bucket(mut p: *const u8, num: u32) -> *mut bucket_t {
     bucket
 }
 unsafe extern "C" fn read_backward_links(mut p: *const u8, num: u32) -> *mut u32 {
-    let mut i: u32 = 0;
     let bwd: *mut u32 = calloc(num as usize, ::std::mem::size_of::<u32>()) as *mut u32;
-    i = 0_i32 as u32;
+    let mut i = 0_u32;
     while i < num {
         *bwd.offset(i as isize) = read_uint32(p);
         p = p.offset(::std::mem::size_of::<u32>() as libc::c_ulong as isize);
@@ -487,12 +473,7 @@ unsafe extern "C" fn read_backward_links(mut p: *const u8, num: u32) -> *mut u32
     bwd
 }
 #[no_mangle]
-pub unsafe extern "C" fn cqdb_reader(
-    buffer: *const libc::c_void,
-    size: usize,
-) -> *mut cqdb_t {
-    let mut i: libc::c_int = 0;
-    let mut db: *mut cqdb_t = std::ptr::null_mut::<cqdb_t>();
+pub unsafe extern "C" fn cqdb_reader(buffer: *const libc::c_void, size: usize) -> *mut cqdb_t {
     /* The minimum size of a valid CQDB is OFFSET_DATA. */
     if size
         < 0usize
@@ -510,14 +491,13 @@ pub unsafe extern "C" fn cqdb_reader(
     {
         return std::ptr::null_mut::<cqdb_t>();
     }
-    db = calloc(1, ::std::mem::size_of::<cqdb_t>()) as *mut cqdb_t;
+    let mut db = calloc(1, ::std::mem::size_of::<cqdb_t>()) as *mut cqdb_t;
     if !db.is_null() {
-        let mut p: *const u8 = std::ptr::null::<u8>();
         /* Set memory block and size. */
         (*db).buffer = buffer as *const u8;
         (*db).size = size;
         /* Read the database header. */
-        p = (*db).buffer;
+        let mut p = (*db).buffer;
         strncpy(
             (*db).header.chunkid.as_mut_ptr() as *mut libc::c_char,
             p as *const libc::c_char,
@@ -533,7 +513,7 @@ pub unsafe extern "C" fn cqdb_reader(
         (*db).header.bwd_size = read_uint32(p);
         p = p.offset(::std::mem::size_of::<u32>() as libc::c_ulong as isize);
         (*db).header.bwd_offset = read_uint32(p);
-        p = p.offset(::std::mem::size_of::<u32>() as libc::c_ulong as isize);
+        // p = p.offset(::std::mem::size_of::<u32>() as libc::c_ulong as isize);
         /* Check the consistency of byte order. */
         if (*db).header.byteorder != 0x62445371_i32 as libc::c_uint {
             free(db as *mut libc::c_void);
@@ -551,7 +531,7 @@ pub unsafe extern "C" fn cqdb_reader(
                 .wrapping_add(::std::mem::size_of::<header_t>() as libc::c_ulong)
                 as isize,
         );
-        i = 0_i32;
+        let mut i = 0_i32;
         while i < 256_i32 {
             let mut ref_0: tableref_t = tableref_t { offset: 0, num: 0 };
             p = read_tableref(&mut ref_0, p);
@@ -585,9 +565,8 @@ pub unsafe extern "C" fn cqdb_reader(
 }
 #[no_mangle]
 pub unsafe extern "C" fn cqdb_delete(db: *mut cqdb_t) {
-    let mut i: libc::c_int = 0;
     if !db.is_null() {
-        i = 0_i32;
+        let mut i = 0_i32;
         while i < 256_i32 {
             free((*db).ht[i as usize].bucket as *mut libc::c_void);
             i += 1
@@ -597,10 +576,7 @@ pub unsafe extern "C" fn cqdb_delete(db: *mut cqdb_t) {
     };
 }
 #[no_mangle]
-pub unsafe extern "C" fn cqdb_to_id(
-    db: *mut cqdb_t,
-    str: *const libc::c_char,
-) -> libc::c_int {
+pub unsafe extern "C" fn cqdb_to_id(db: *mut cqdb_t, str: *const libc::c_char) -> libc::c_int {
     let hv: u32 = hashlittle(
         str as *const libc::c_void,
         strlen(str).wrapping_add(1),
@@ -610,21 +586,17 @@ pub unsafe extern "C" fn cqdb_to_id(
     let ht: *mut table_t = &mut *(*db).ht.as_mut_ptr().offset(t as isize) as *mut table_t;
     if (*ht).num != 0 && !(*ht).bucket.is_null() {
         let n: libc::c_int = (*ht).num as libc::c_int;
-        let mut k: libc::c_int =
-            (hv >> 8_i32).wrapping_rem(n as libc::c_uint) as libc::c_int;
-        let mut p: *mut bucket_t = std::ptr::null_mut::<bucket_t>();
+        let mut k: libc::c_int = (hv >> 8_i32).wrapping_rem(n as libc::c_uint) as libc::c_int;
         loop {
-            p = &mut *(*ht).bucket.offset(k as isize) as *mut bucket_t;
+            let p = &mut *(*ht).bucket.offset(k as isize) as *mut bucket_t;
             if (*p).offset == 0 {
                 break;
             }
             if (*p).hash == hv {
-                let mut value: libc::c_int = 0;
-                let mut ksize: u32 = 0;
                 let mut q: *const u8 = (*db).buffer.offset((*p).offset as isize);
-                value = read_uint32(q) as libc::c_int;
+                let value = read_uint32(q) as libc::c_int;
                 q = q.offset(::std::mem::size_of::<u32>() as libc::c_ulong as isize);
-                ksize = read_uint32(q);
+                let _ksize = read_uint32(q);
                 q = q.offset(::std::mem::size_of::<u32>() as libc::c_ulong as isize);
                 if strcmp(str, q as *const libc::c_char) == 0_i32 {
                     return value;
@@ -636,10 +608,7 @@ pub unsafe extern "C" fn cqdb_to_id(
     CQDB_ERROR_NOTFOUND as libc::c_int
 }
 #[no_mangle]
-pub unsafe extern "C" fn cqdb_to_string(
-    db: *mut cqdb_t,
-    id: libc::c_int,
-) -> *const libc::c_char {
+pub unsafe extern "C" fn cqdb_to_string(db: *mut cqdb_t, id: libc::c_int) -> *const libc::c_char {
     /* Check if the current database supports the backward look-up. */
     if !(*db).bwd.is_null() && (id as u32) < (*db).header.bwd_size {
         let offset: u32 = *(*db).bwd.offset(id as isize); /* Skip key data. */
