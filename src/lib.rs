@@ -4,6 +4,8 @@ use std::{
     mem,
 };
 
+use arr_macro::arr;
+
 mod hash;
 
 const CHUNKID: &[u8; 4] = b"CQDB";
@@ -28,7 +30,7 @@ pub struct CQDB<'a> {
     /// Chunk header
     header: Header,
     /// Hash tables (string -> id)
-    tables: Vec<Table>,
+    tables: [Table; NUM_TABLES],
     /// Array for backward lookup (id -> string)
     bwd: Vec<u32>,
     /// Number of key/data pairs
@@ -71,7 +73,7 @@ struct TableRef {
 }
 
 /// An element of a hash table
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 struct Bucket {
     /// Hash value of the record
     hash: u32,
@@ -90,7 +92,7 @@ pub struct CQDBWriter {
     /// Offset address to a new key/data pair
     current: u64,
     /// Hash tables (string -> id)
-    tables: Vec<Table>,
+    tables: [Table; NUM_TABLES],
     /// Backlink array
     bwd: Vec<u32>,
     bwd_num: u32,
@@ -139,26 +141,17 @@ impl<'a> CQDB<'a> {
             bwd_offset,
         };
         let mut num_db = 0;
-        let mut tables = Vec::with_capacity(NUM_TABLES);
-        for _ in 0..NUM_TABLES {
+        let mut tables = arr![Table::default(); 256];
+        for i in 0..NUM_TABLES {
             let table_offset = read_u32(&buf[index..index + 4])?;
             index += 4;
             let table_num = read_u32(&buf[index..index + 4])?;
             index += 4;
-            let table = if table_offset > 0 {
+            if table_offset > 0 {
                 let bucket = Self::read_bucket(buf, table_offset as usize, table_num as usize)?;
-                Table {
-                    bucket,
-                    num: table_num,
-                }
-            } else {
-                // An empty hash table
-                Table {
-                    bucket: Vec::new(),
-                    num: 0,
-                }
-            };
-            tables.push(table);
+                tables[i].bucket = bucket;
+                tables[i].num = table_num;
+            }
             // The number of records is the half of the table size
             num_db += table_num / 2;
         }
@@ -278,7 +271,7 @@ impl CQDBWriter {
             flag,
             begin,
             current,
-            tables: Vec::with_capacity(NUM_TABLES),
+            tables: arr![Table::default(); 256],
             bwd: Vec::new(),
             bwd_num: 0,
             bwd_size: 0,
