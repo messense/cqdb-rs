@@ -54,7 +54,7 @@ pub struct DbWriter {
 /// CQDB chunk header
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct Header {
+struct Header {
     /// Chunk identifier, "CQDB"
     chunkid: [u8; 4],
     /// Chunk size including this header
@@ -71,7 +71,7 @@ pub struct Header {
 
 /// A hash table
 #[derive(Debug, Clone)]
-pub struct Table {
+struct Table {
     /// Number of elements in the table
     num: u32,
     /// Array of Bucket
@@ -88,7 +88,7 @@ struct TableRef {
 
 /// An element of a hash table
 #[derive(Debug, Clone, Copy)]
-pub struct Bucket {
+struct Bucket {
     /// Hash value of the record
     hash: u32,
     /// Offset address to the actual record
