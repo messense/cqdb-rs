@@ -1,4 +1,8 @@
-use std::{fs, io, mem};
+use std::{
+    fs,
+    io::{self, Seek, SeekFrom, Write},
+    mem,
+};
 
 mod hash;
 
@@ -31,26 +35,6 @@ pub struct CQDB<'a> {
     num: u32,
 }
 
-/// Writer for a constant quark database
-#[derive(Debug)]
-pub struct DbWriter {
-    /// Operation flag
-    flag: u32,
-    /// File
-    file: fs::File,
-    /// Offset address to the head of this database
-    begin: u32,
-    /// Offset address to a new key/data pair
-    cur: u32,
-    /// Hash tables (string -> id)
-    ht: [Table; NUM_TABLES],
-    /// Backlink array
-    bwd: Vec<u32>,
-    bwd_num: u32,
-    /// Number of elements in the backlink array
-    bwd_size: u32,
-}
-
 /// CQDB chunk header
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -70,7 +54,7 @@ struct Header {
 }
 
 /// A hash table
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct Table {
     /// Number of elements in the table
     num: u32,
@@ -93,6 +77,25 @@ struct Bucket {
     hash: u32,
     /// Offset address to the actual record
     offset: u32,
+}
+
+/// Writer for a constant quark database
+#[derive(Debug)]
+pub struct CQDBWriter {
+    file: fs::File,
+    /// Operation flag
+    flag: u32,
+    /// Offset address to the head of this database
+    begin: u64,
+    /// Offset address to a new key/data pair
+    current: u64,
+    /// Hash tables (string -> id)
+    tables: Vec<Table>,
+    /// Backlink array
+    bwd: Vec<u32>,
+    bwd_num: u32,
+    /// Number of elements in the backlink array
+    bwd_size: u32,
 }
 
 impl<'a> CQDB<'a> {
@@ -255,5 +258,40 @@ impl<'a> CQDB<'a> {
             }
         }
         Ok(None)
+    }
+}
+
+impl CQDBWriter {
+    /// Create a new CQDB writer
+    pub fn new(file: fs::File) -> io::Result<Self> {
+        Self::with_flag(file, 0)
+    }
+
+    /// Create a new CQDB writer with flag
+    pub fn with_flag(mut file: fs::File, flag: u32) -> io::Result<Self> {
+        let begin = file.seek(SeekFrom::Current(0))? as u64;
+        let current = (mem::size_of::<Header>() + mem::size_of::<TableRef>() * NUM_TABLES) as u64;
+        // Move the file pointer to the offset to the first key/data pair
+        file.seek(SeekFrom::Start(begin + current))?;
+        Ok(Self {
+            file,
+            flag,
+            begin,
+            current,
+            tables: Vec::with_capacity(NUM_TABLES),
+            bwd: Vec::new(),
+            bwd_num: 0,
+            bwd_size: 0,
+        })
+    }
+
+    /// Put a string/identifier association to the database
+    pub fn put(&mut self, key: &str, id: i32) -> io::Result<()> {
+        todo!()
+    }
+
+    /// Close the writer, flush the file stream
+    pub fn close(&mut self) -> io::Result<()> {
+        todo!()
     }
 }
