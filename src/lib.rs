@@ -1,4 +1,4 @@
-use std::{fs, io, mem, path::Path};
+use std::{fs, io, mem};
 
 mod c;
 
@@ -18,7 +18,9 @@ fn read_u32(buf: &[u8]) -> io::Result<u32> {
 
 /// Constant quark database (CQDB)
 #[derive(Debug)]
-pub struct CQDB {
+pub struct CQDB<'a> {
+    /// Database file buffer
+    buffer: &'a [u8],
     /// Chunk header
     header: Header,
     /// Hash tables (string -> id)
@@ -95,13 +97,8 @@ pub struct Bucket {
     offset: u32,
 }
 
-impl CQDB {
-    pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let buf = fs::read(path)?;
-        Self::from_reader(&buf)
-    }
-
-    pub fn from_reader(buf: &[u8]) -> io::Result<Self> {
+impl<'a> CQDB<'a> {
+    pub fn new(buf: &'a [u8]) -> io::Result<Self> {
         if buf.len() < mem::size_of::<Header>() + mem::size_of::<TableRef>() * NUM_TABLES {
             // The minimum size of a valid CQDB
             return Err(io::Error::new(io::ErrorKind::Other, "invalid file format"));
@@ -172,6 +169,7 @@ impl CQDB {
             Vec::new()
         };
         Ok(Self {
+            buffer: buf,
             header,
             tables,
             bwd,

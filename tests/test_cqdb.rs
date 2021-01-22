@@ -1,10 +1,11 @@
-use std::ffi::CString;
+use std::{ffi::CString, fs};
 
 use cqdb::CQDB;
 
 #[test]
 fn test_cqdb_open() {
-    let db = CQDB::open("tests/fixtures/test.cqdb").unwrap();
+    let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
+    let db = CQDB::new(&buf).unwrap();
     assert_eq!(100, db.num());
 }
 
@@ -24,6 +25,7 @@ fn test_cqdb_read_cqdb_sys() {
         assert_eq!(0, cqdb_sys::cqdb_writer_close(writer));
         libc::fclose(fp);
     }
-    let db = CQDB::open("tests/output/cqdb-sys.cqdb").unwrap();
+    let buf = fs::read("tests/output/cqdb-sys.cqdb").unwrap();
+    let db = CQDB::new(&buf).unwrap();
     assert_eq!(100, db.num());
 }
