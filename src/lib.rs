@@ -17,7 +17,7 @@ fn read_u32(buf: &[u8]) -> io::Result<u32> {
 }
 
 /// Constant quark database (CQDB)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CQDB<'a> {
     /// Database file buffer
     buffer: &'a [u8],
@@ -52,7 +52,7 @@ pub struct DbWriter {
 }
 
 /// CQDB chunk header
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Header {
     /// Chunk identifier, "CQDB"
@@ -70,7 +70,7 @@ pub struct Header {
 }
 
 /// A hash table
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Table {
     /// Number of elements in the table
     num: u32,
@@ -87,7 +87,7 @@ struct TableRef {
 }
 
 /// An element of a hash table
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Bucket {
     /// Hash value of the record
     hash: u32,
