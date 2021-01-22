@@ -206,14 +206,3 @@ impl Db {
         self.num
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::Db;
-
-    #[test]
-    fn test_cqdb_reader() {
-        let db = Db::open("tests/fixtures/test.cqdb").unwrap();
-        assert_eq!(100, db.num());
-    }
-}
