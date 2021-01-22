@@ -1,17 +1,20 @@
-use std::{
-    fs,
-    io::{self, Cursor, Read, Seek, SeekFrom},
-    mem,
-    path::Path,
-};
-
-use byteorder::{ReadBytesExt, LE};
+use std::{fs, io, mem, path::Path};
 
 mod c;
 
 const CHUNKID: &[u8; 4] = b"CQDB";
 const BYTEORDER_CHECK: u32 = 0x62445371;
 const NUM_TABLES: usize = 256;
+
+fn read_u32(buf: &[u8]) -> io::Result<u32> {
+    if buf.len() < 4 {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "not enough data for reading u32",
+        ));
+    }
+    Ok(u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]))
+}
 
 /// Constant quark database (CQDB)
 #[derive(Debug)]
@@ -75,10 +78,8 @@ pub struct Table {
     bucket: Vec<Bucket>,
 }
 
-/// Reference to a hash table
-#[derive(Debug)]
 #[repr(C)]
-pub struct TableRef {
+struct TableRef {
     /// Offset to a hash table
     offset: u32,
     /// Number of elements in the hash table
@@ -105,19 +106,21 @@ impl Db {
             // The minimum size of a valid CQDB
             return Err(io::Error::new(io::ErrorKind::Other, "invalid file format"));
         }
-        let mut cursor = Cursor::new(buf);
-        let mut magic = [0; 4];
-        cursor.read_exact(&mut magic)?;
+        let magic = &buf[0..4];
         // Check the file chunkid
-        if &magic != CHUNKID {
+        if magic != CHUNKID {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 "invalid file format, magic mismatch",
             ));
         }
-        let chunk_size = cursor.read_u32::<LE>()?;
-        let flag = cursor.read_u32::<LE>()?;
-        let byte_order = cursor.read_u32::<LE>()?;
+        let mut index = 4; // skip magic
+        let chunk_size = read_u32(&buf[index..index + 4])?;
+        index += 4;
+        let flag = read_u32(&buf[index..index + 4])?;
+        index += 4;
+        let byte_order = read_u32(&buf[index..index + 4])?;
+        index += 4;
         // Check the consistency of byte order
         if byte_order != BYTEORDER_CHECK {
             return Err(io::Error::new(
@@ -125,8 +128,10 @@ impl Db {
                 "invalid file format, byte order mismatch",
             ));
         }
-        let bwd_size = cursor.read_u32::<LE>()?;
-        let bwd_offset = cursor.read_u32::<LE>()?;
+        let bwd_size = read_u32(&buf[index..index + 4])?;
+        index += 4;
+        let bwd_offset = read_u32(&buf[index..index + 4])?;
+        index += 4;
         let header = Header {
             chunkid: CHUNKID.clone(),
             size: chunk_size,
@@ -138,13 +143,15 @@ impl Db {
         let mut num_db = 0;
         let mut tables = Vec::with_capacity(NUM_TABLES);
         for _ in 0..NUM_TABLES {
-            let table_ref = Self::read_table_ref(&mut cursor)?;
-            let table = if table_ref.offset > 0 {
-                let bucket =
-                    Self::read_bucket(buf, table_ref.offset as u64, table_ref.num as usize)?;
+            let table_offset = read_u32(&buf[index..index + 4])?;
+            index += 4;
+            let table_num = read_u32(&buf[index..index + 4])?;
+            index += 4;
+            let table = if table_offset > 0 {
+                let bucket = Self::read_bucket(buf, table_offset as usize, table_num as usize)?;
                 Table {
                     bucket,
-                    num: table_ref.num,
+                    num: table_num,
                     size: 0,
                 }
             } else {
@@ -157,10 +164,10 @@ impl Db {
             };
             tables.push(table);
             // The number of records is the half of the table size
-            num_db += table_ref.num / 2;
+            num_db += table_num / 2;
         }
         let bwd = if bwd_offset > 0 {
-            Self::read_backward_links(buf, bwd_offset as u64, num_db as usize)?
+            Self::read_backward_links(buf, bwd_offset as usize, num_db as usize)?
         } else {
             Vec::new()
         };
@@ -172,31 +179,25 @@ impl Db {
         })
     }
 
-    #[inline]
-    fn read_table_ref(cursor: &mut Cursor<&[u8]>) -> io::Result<TableRef> {
-        let offset = cursor.read_u32::<LE>()?;
-        let num = cursor.read_u32::<LE>()?;
-        Ok(TableRef { offset, num })
-    }
-
-    fn read_bucket(buf: &[u8], offset: u64, num: usize) -> io::Result<Vec<Bucket>> {
-        let mut cursor = Cursor::new(buf);
-        cursor.seek(SeekFrom::Start(offset))?;
+    fn read_bucket(buf: &[u8], offset: usize, num: usize) -> io::Result<Vec<Bucket>> {
         let mut buckets = Vec::with_capacity(num);
+        let mut index = offset;
         for _ in 0..num {
-            let hash = cursor.read_u32::<LE>()?;
-            let offset = cursor.read_u32::<LE>()?;
+            let hash = read_u32(&buf[index..index + 4])?;
+            index += 4;
+            let offset = read_u32(&buf[index..index + 4])?;
+            index += 4;
             buckets.push(Bucket { hash, offset });
         }
         Ok(buckets)
     }
 
-    fn read_backward_links(buf: &[u8], offset: u64, num: usize) -> io::Result<Vec<u32>> {
-        let mut cursor = Cursor::new(buf);
-        cursor.seek(SeekFrom::Start(offset))?;
+    fn read_backward_links(buf: &[u8], offset: usize, num: usize) -> io::Result<Vec<u32>> {
         let mut bwd = Vec::with_capacity(num);
+        let mut index = offset;
         for _ in 0..num {
-            bwd.push(cursor.read_u32::<LE>()?);
+            bwd.push(read_u32(&buf[index..index + 4])?);
+            index += 4;
         }
         Ok(bwd)
     }
