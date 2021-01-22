@@ -18,7 +18,7 @@ fn read_u32(buf: &[u8]) -> io::Result<u32> {
 
 /// Constant quark database (CQDB)
 #[derive(Debug)]
-pub struct Db {
+pub struct CQDB {
     /// Chunk header
     header: Header,
     /// Hash tables (string -> id)
@@ -95,7 +95,7 @@ pub struct Bucket {
     offset: u32,
 }
 
-impl Db {
+impl CQDB {
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let buf = fs::read(path)?;
         Self::from_reader(&buf)
@@ -171,7 +171,7 @@ impl Db {
         } else {
             Vec::new()
         };
-        Ok(Db {
+        Ok(Self {
             header,
             tables,
             bwd,
