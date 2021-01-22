@@ -74,8 +74,6 @@ pub struct Header {
 pub struct Table {
     /// Number of elements in the table
     num: u32,
-    /// Maxinum number of elements
-    size: u32,
     /// Array of Bucket
     bucket: Vec<Bucket>,
 }
@@ -149,14 +147,12 @@ impl<'a> CQDB<'a> {
                 Table {
                     bucket,
                     num: table_num,
-                    size: 0,
                 }
             } else {
                 // An empty hash table
                 Table {
                     bucket: Vec::new(),
                     num: 0,
-                    size: 0,
                 }
             };
             tables.push(table);
