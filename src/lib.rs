@@ -1,6 +1,6 @@
 use std::{fs, io, mem};
 
-mod c;
+mod hash;
 
 const CHUNKID: &[u8; 4] = b"CQDB";
 const BYTEORDER_CHECK: u32 = 0x62445371;
@@ -200,7 +200,64 @@ impl<'a> CQDB<'a> {
         Ok(bwd)
     }
 
+    /// Get the number of associations in the database
     pub fn num(&self) -> u32 {
         self.num
+    }
+
+    /// Retrieve the identifier associated with a string
+    pub fn to_id(&self, s: &str) -> Option<i32> {
+        self.to_id_impl(s).unwrap_or_default()
+    }
+
+    fn to_id_impl(&self, s: &str) -> io::Result<Option<i32>> {
+        let hash = crate::hash::jhash(s.as_bytes(), s.len() + 1, 0);
+        let table_index = hash % NUM_TABLES as u32;
+        let table = &self.tables[table_index as usize];
+        if table.num > 0 && !table.bucket.is_empty() {
+            let n = table.num;
+            let mut k = (hash >> 8) % n;
+            loop {
+                let bucket = &table.bucket[k as usize];
+                if bucket.offset > 0 {
+                    if bucket.hash == hash {
+                        let mut index = bucket.offset as usize;
+                        let value = read_u32(&self.buffer[index..index + 4])?;
+                        index += 4;
+                        let ksize = read_u32(&self.buffer[index..index + 4])? - 1; // ksize includes NUL byte
+                        index += 4;
+                        let actual_str = &self.buffer[index..index + ksize as usize];
+                        if s.as_bytes() == actual_str {
+                            return Ok(Some(value as i32));
+                        }
+                    }
+                } else {
+                    break;
+                }
+                k = (k + 1) % n;
+            }
+        }
+        Ok(None)
+    }
+
+    /// Retrieve the string associated with an identifier
+    pub fn to_str(&self, id: i32) -> Option<&str> {
+        self.to_str_impl(id).unwrap_or_default()
+    }
+
+    fn to_str_impl(&self, id: i32) -> io::Result<Option<&str>> {
+        // Check if the current database supports the backward lookup
+        if !self.bwd.is_empty() && (id as u32) < self.header.bwd_size {
+            let offset = self.bwd[id as usize];
+            if offset > 0 {
+                let mut index = offset as usize + 4; // Skip key data
+                let value_size = read_u32(&self.buffer[index..index + 4])? as usize - 1; // value_size includes NUL byte
+                index += 4;
+                if let Ok(s) = std::str::from_utf8(&self.buffer[index..index + value_size]) {
+                    return Ok(Some(s));
+                }
+            }
+        }
+        Ok(None)
     }
 }

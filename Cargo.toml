@@ -8,7 +8,6 @@ edition = "2018"
 
 [dependencies]
 jhash = "0.1.1"
-libc = "0.2.82"
 
 [dev-dependencies]
 cqdb-sys = "0.1.0"
