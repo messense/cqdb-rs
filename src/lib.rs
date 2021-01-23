@@ -1,5 +1,4 @@
 use std::{
-    fs,
     io::{self, Seek, SeekFrom, Write},
     mem,
 };
@@ -100,8 +99,8 @@ struct Bucket {
 
 /// Writer for a constant quark database
 #[derive(Debug)]
-pub struct CQDBWriter<'a> {
-    file: &'a mut fs::File,
+pub struct CQDBWriter<'a, T: Write + Seek> {
+    writer: &'a mut T,
     /// Operation flag
     flag: Flag,
     /// Offset address to the head of this database
@@ -271,20 +270,20 @@ impl<'a> CQDB<'a> {
     }
 }
 
-impl<'a> CQDBWriter<'a> {
+impl<'a, T: Write + Seek> CQDBWriter<'a, T> {
     /// Create a new CQDB writer
-    pub fn new(file: &'a mut fs::File) -> io::Result<Self> {
-        Self::with_flag(file, Flag::NONE)
+    pub fn new(writer: &'a mut T) -> io::Result<Self> {
+        Self::with_flag(writer, Flag::NONE)
     }
 
     /// Create a new CQDB writer with flag
-    pub fn with_flag(file: &'a mut fs::File, flag: Flag) -> io::Result<Self> {
-        let begin = file.seek(SeekFrom::Current(0))? as u64;
+    pub fn with_flag(writer: &'a mut T, flag: Flag) -> io::Result<Self> {
+        let begin = writer.seek(SeekFrom::Current(0))? as u64;
         let current = (mem::size_of::<Header>() + mem::size_of::<TableRef>() * NUM_TABLES) as u64;
         // Move the file pointer to the offset to the first key/data pair
-        file.seek(SeekFrom::Start(begin + current))?;
+        writer.seek(SeekFrom::Start(begin + current))?;
         Ok(Self {
-            file,
+            writer,
             flag,
             begin,
             current,
@@ -301,10 +300,10 @@ impl<'a> CQDBWriter<'a> {
         let hash = crate::hash::jhash(key.as_bytes(), key_size, 0);
         let table = &mut self.tables[hash as usize % 256];
         // Write out the current data
-        self.file.write_all(&pack_u32(id))?;
-        self.file.write_all(&pack_u32(key_size as u32))?;
-        self.file.write_all(key.as_bytes())?;
-        self.file.write_all(b"\0")?;
+        self.writer.write_all(&pack_u32(id))?;
+        self.writer.write_all(&pack_u32(key_size as u32))?;
+        self.writer.write_all(key.as_bytes())?;
+        self.writer.write_all(b"\0")?;
         // Expand the bucket if necessary
         if table.size <= table.num as usize {
             table.size = (table.size + 1) * 2;
@@ -371,32 +370,32 @@ impl<'a> CQDBWriter<'a> {
             }
             // Write the bucket
             for k in 0..n as usize {
-                self.file.write_all(&pack_u32(dst[k].hash))?;
-                self.file.write_all(&pack_u32(dst[k].offset))?;
+                self.writer.write_all(&pack_u32(dst[k].hash))?;
+                self.writer.write_all(&pack_u32(dst[k].offset))?;
             }
         }
         // Write the backlink array if specified
         if !self.flag.contains(Flag::ONEWAY) && self.bwd_size > 0 {
             // Store the offset to the head of this array
-            let current_offset = self.file.seek(SeekFrom::Current(0))?;
+            let current_offset = self.writer.seek(SeekFrom::Current(0))?;
             header.bwd_offset = (current_offset - self.begin) as u32;
             // Stroe the contents of the backlink array
             for i in 0..self.bwd_num as usize {
-                self.file.write_all(&pack_u32(self.bwd[i]))?;
+                self.writer.write_all(&pack_u32(self.bwd[i]))?;
             }
         }
         // Store the current position
-        let offset = self.file.seek(SeekFrom::Current(0))?;
+        let offset = self.writer.seek(SeekFrom::Current(0))?;
         header.size = (offset - self.begin) as u32;
         // Rewind the current position to the beginning
-        self.file.seek(SeekFrom::Start(self.begin))?;
+        self.writer.seek(SeekFrom::Start(self.begin))?;
         // Write the file header
-        self.file.write_all(&header.chunkid)?;
-        self.file.write_all(&pack_u32(header.size))?;
-        self.file.write_all(&pack_u32(header.flag))?;
-        self.file.write_all(&pack_u32(header.byteorder))?;
-        self.file.write_all(&pack_u32(header.bwd_size))?;
-        self.file.write_all(&pack_u32(header.bwd_offset))?;
+        self.writer.write_all(&header.chunkid)?;
+        self.writer.write_all(&pack_u32(header.size))?;
+        self.writer.write_all(&pack_u32(header.flag))?;
+        self.writer.write_all(&pack_u32(header.byteorder))?;
+        self.writer.write_all(&pack_u32(header.bwd_size))?;
+        self.writer.write_all(&pack_u32(header.bwd_offset))?;
         // Write references to hash tables. At this moment, self.current points
         // to the offset succeeding the last key/data pair.
         for i in 0..NUM_TABLES {
@@ -407,19 +406,19 @@ impl<'a> CQDBWriter<'a> {
             } else {
                 0
             };
-            self.file.write_all(&pack_u32(table_offset))?;
+            self.writer.write_all(&pack_u32(table_offset))?;
             // Bucket size is double the number of elements
-            self.file.write_all(&pack_u32(table_num * 2))?;
+            self.writer.write_all(&pack_u32(table_num * 2))?;
             // Advance the offset counter
             self.current += table_num as u64 * 2 * std::mem::size_of::<Bucket>() as u64;
         }
         // Seek to the last position
-        self.file.seek(SeekFrom::Start(offset))?;
+        self.writer.seek(SeekFrom::Start(offset))?;
         Ok(())
     }
 }
 
-impl<'a> Drop for CQDBWriter<'a> {
+impl<'a, T: Write + Seek> Drop for CQDBWriter<'a, T> {
     fn drop(&mut self) {
         match self.close() {
             Ok(()) => {}
