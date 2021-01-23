@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 arr_macro = "0.1.3"
+bitflags = "1.2.1"
 jhash = "0.1.1"
 
 [dev-dependencies]
