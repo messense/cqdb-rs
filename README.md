@@ -13,7 +13,7 @@ Add it to your ``Cargo.toml``:
 
 ```toml
 [dependencies]
-cqdb = "0.1"
+cqdb = "0.2"
 ```
 
 ## License

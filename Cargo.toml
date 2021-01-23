@@ -1,6 +1,6 @@
 [package]
 name = "cqdb"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["messense <messense@icloud.com>"]
 description = "Rust implementation of Constant Quark Database (CQDB)"
 edition = "2018"
