@@ -15,7 +15,9 @@ const NUM_TABLES: usize = 256;
 
 bitflags! {
     pub struct Flag: u32 {
+        /// No flag, default
         const NONE = 0;
+        /// A reverse lookup array is omitted
         const ONEWAY = 0x00000001;
     }
 }
@@ -98,8 +100,8 @@ struct Bucket {
 
 /// Writer for a constant quark database
 #[derive(Debug)]
-pub struct CQDBWriter {
-    file: fs::File,
+pub struct CQDBWriter<'a> {
+    file: &'a mut fs::File,
     /// Operation flag
     flag: Flag,
     /// Offset address to the head of this database
@@ -269,14 +271,14 @@ impl<'a> CQDB<'a> {
     }
 }
 
-impl CQDBWriter {
+impl<'a> CQDBWriter<'a> {
     /// Create a new CQDB writer
-    pub fn new(file: fs::File) -> io::Result<Self> {
+    pub fn new(file: &'a mut fs::File) -> io::Result<Self> {
         Self::with_flag(file, Flag::NONE)
     }
 
     /// Create a new CQDB writer with flag
-    pub fn with_flag(mut file: fs::File, flag: Flag) -> io::Result<Self> {
+    pub fn with_flag(file: &'a mut fs::File, flag: Flag) -> io::Result<Self> {
         let begin = file.seek(SeekFrom::Current(0))? as u64;
         let current = (mem::size_of::<Header>() + mem::size_of::<TableRef>() * NUM_TABLES) as u64;
         // Move the file pointer to the offset to the first key/data pair
@@ -417,7 +419,7 @@ impl CQDBWriter {
     }
 }
 
-impl Drop for CQDBWriter {
+impl<'a> Drop for CQDBWriter<'a> {
     fn drop(&mut self) {
         match self.close() {
             Ok(()) => {}
