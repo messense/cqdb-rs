@@ -1,4 +1,7 @@
-use std::{ffi::CString, fs};
+use std::{
+    ffi::{CStr, CString},
+    fs,
+};
 
 use cqdb::{CQDBWriter, CQDB};
 
@@ -85,10 +88,18 @@ fn test_cqdb_sys_read_cqdb_writer() {
     unsafe {
         let db = cqdb_sys::cqdb_reader(buf.as_ptr() as _, buf.len());
         assert!(!db.is_null());
+        // Forward lookups, strings to integer indentifiers
         for id in 0..100 {
             let key = CString::new(format!("{:08}", id)).unwrap();
             let j = cqdb_sys::cqdb_to_id(db, key.as_ptr());
             assert_eq!(id, j);
+        }
+        // Backward lookups: integer identifiers to strings.
+        for id in 0..100 {
+            let ptr = cqdb_sys::cqdb_to_string(db, id);
+            assert!(!ptr.is_null());
+            let key = CStr::from_ptr(ptr).to_str().unwrap();
+            assert_eq!(key, format!("{:08}", id));
         }
     }
 }
