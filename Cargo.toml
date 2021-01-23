@@ -2,7 +2,12 @@
 name = "cqdb"
 version = "0.1.0"
 authors = ["messense <messense@icloud.com>"]
+description = "Rust implementation of Constant Quark Database (CQDB)"
 edition = "2018"
+license = "MIT"
+repository = "https://github.com/messense/cqdb-sys"
+keywords = ["cdb", "cqdb", "crfsuite"]
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
