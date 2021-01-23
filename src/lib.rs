@@ -1,3 +1,5 @@
+//! Rust implementation of [Constant Quark Database](http://www.chokkan.org/software/cqdb/):
+//! a database library specialized for serialization and retrieval of static associations between strings and integer identifiers
 use std::{
     io::{self, Seek, SeekFrom, Write},
     mem,
@@ -13,6 +15,7 @@ const BYTEORDER_CHECK: u32 = 0x62445371;
 const NUM_TABLES: usize = 256;
 
 bitflags! {
+    /// CQDB writer flag
     pub struct Flag: u32 {
         /// No flag, default
         const NONE = 0;
