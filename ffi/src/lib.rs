@@ -1,9 +1,5 @@
 #![allow(non_camel_case_types)]
 #![allow(clippy::missing_safety_doc)]
-#[cfg(unix)]
-use std::os::unix::io::{FromRawFd, RawFd};
-#[cfg(windows)]
-use std::os::windows::io::{FromRawHandle, RawHandle};
 use std::{
     ffi::CStr,
     fs::File,
@@ -39,10 +35,7 @@ struct tag_cqdb_writer_inner {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct tag_cqdb_writer {
-    #[cfg(unix)]
-    fd: RawFd,
-    #[cfg(windows)]
-    handle: RawHandle,
+    file: *mut FILE,
     inner: *mut tag_cqdb_writer_inner,
 }
 
@@ -106,7 +99,9 @@ pub unsafe extern "C" fn cqdb_writer(fp: *mut FILE, flag: c_int) -> *mut cqdb_wr
 
 #[cfg(unix)]
 unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
-    let fd = libc::dup(libc::fileno(fp));
+    use std::os::unix::io::FromRawFd;
+
+    let fd = libc::fileno(fp);
     // Avoid drop the File object since it's borrowed
     let mut file = ManuallyDrop::new(File::from_raw_fd(fd));
     let flag = if flag as c_uint == CQDB_ONEWAY {
@@ -116,12 +111,14 @@ unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
     };
     let writer = CQDBWriter::with_flag(&mut *file, flag).unwrap();
     let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
-    Box::into_raw(Box::new(cqdb_writer_t { fd, inner }))
+    Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
 }
 
 #[cfg(windows)]
 unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
-    let fd = libc::dup(libc::fileno(fp));
+    use std::os::windows::io::{FromRawHandle, RawHandle};
+
+    let fd = libc::fileno(fp);
     let handle = libc::get_osfhandle(fd) as RawHandle;
     // Avoid drop the File object since it's borrowed
     let mut file = ManuallyDrop::new(File::from_raw_handle(handle));
@@ -148,15 +145,9 @@ pub unsafe extern "C" fn cqdb_writer_close(dbw: *mut cqdb_writer_t) -> c_int {
         let inner = (*dbw).inner as *mut CQDBWriter<File>;
         // Drop CQDBWriter
         Box::from_raw(inner);
-        // Close duplicated file descriptor
-        #[cfg(unix)]
-        {
-            File::from_raw_fd((*dbw).fd);
-        }
-        #[cfg(windows)]
-        {
-            File::from_raw_handle((*dbw).handle);
-        }
+        // Re-sync file position so that ftell works correctly
+        let offset = libc::lseek(libc::fileno((*dbw).file), 0, libc::SEEK_CUR);
+        libc::fseek((*dbw).file, offset, libc::SEEK_SET);
         Box::from_raw(dbw);
     }
     // FIXME error no
