@@ -129,7 +129,7 @@ unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
     };
     let writer = CQDBWriter::with_flag(&mut *file, flag).unwrap();
     let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
-    Box::into_raw(Box::new(cqdb_writer_t { handle, inner }))
+    Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
 }
 
 /// Close a CQDB writer.
