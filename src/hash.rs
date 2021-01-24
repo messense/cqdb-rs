@@ -1,10 +1,8 @@
 use ::jhash::{jhash_final, jhash_mix, JHASH_INITVAL};
 
 #[must_use]
-pub fn jhash(mut key: &[u8], length: usize, initval: u32) -> u32 {
-    let mut a = JHASH_INITVAL
-        .wrapping_add(length as u32)
-        .wrapping_add(initval);
+pub fn jhash(mut key: &[u8], length: u32, initval: u32) -> u32 {
+    let mut a = JHASH_INITVAL.wrapping_add(length).wrapping_add(initval);
     let mut b = a;
     let mut c = a;
 
