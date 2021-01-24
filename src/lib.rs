@@ -1,6 +1,7 @@
 //! Rust implementation of [Constant Quark Database](http://www.chokkan.org/software/cqdb/):
 //! a database library specialized for serialization and retrieval of static associations between strings and integer identifiers
 use std::{
+    fmt,
     io::{self, Seek, SeekFrom, Write},
     mem,
 };
@@ -40,7 +41,7 @@ fn pack_u32(value: u32) -> [u8; 4] {
 }
 
 /// Constant quark database (CQDB)
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CQDB<'a> {
     /// Database file buffer
     buffer: &'a [u8],
@@ -119,6 +120,17 @@ pub struct CQDBWriter<'a, T: Write + Seek> {
     bwd_size: u32,
 }
 
+impl<'a> fmt::Debug for CQDB<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CQDB")
+            .field("header", &self.header)
+            .field("tables", &self.tables)
+            .field("bwd", &self.bwd)
+            .field("num", &self.num)
+            .finish()
+    }
+}
+
 impl<'a> CQDB<'a> {
     pub fn new(buf: &'a [u8]) -> io::Result<Self> {
         if buf.len() < mem::size_of::<Header>() + mem::size_of::<TableRef>() * NUM_TABLES {
@@ -152,7 +164,7 @@ impl<'a> CQDB<'a> {
         let bwd_offset = unpack_u32(&buf[index..])?;
         index += 4;
         let header = Header {
-            chunk_id: CHUNK_ID.clone(),
+            chunk_id: *CHUNK_ID,
             size: chunk_size,
             flag,
             byteorder: byte_order,
@@ -252,11 +264,11 @@ impl<'a> CQDB<'a> {
     }
 
     /// Retrieve the string associated with an identifier
-    pub fn to_str(&self, id: u32) -> Option<&str> {
+    pub fn to_str(&'a self, id: u32) -> Option<&'a str> {
         self.to_str_impl(id).unwrap_or_default()
     }
 
-    fn to_str_impl(&self, id: u32) -> io::Result<Option<&str>> {
+    fn to_str_impl(&'a self, id: u32) -> io::Result<Option<&'a str>> {
         // Check if the current database supports the backward lookup
         if !self.bwd.is_empty() && (id as u32) < self.header.bwd_size {
             let offset = self.bwd[id as usize];
@@ -340,7 +352,7 @@ impl<'a, T: Write + Seek> CQDBWriter<'a, T> {
     /// Close the writer, flush the file stream
     pub fn close(&mut self) -> io::Result<()> {
         let mut header = Header {
-            chunk_id: CHUNK_ID.clone(),
+            chunk_id: *CHUNK_ID,
             flag: self.flag.bits,
             byteorder: BYTEORDER_CHECK,
             bwd_offset: 0,

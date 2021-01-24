@@ -19,3 +19,9 @@ jhash = "0.1.1"
 [dev-dependencies]
 cqdb-sys = "0.1.0"
 libc = "0.2.82"
+
+[workspace]
+members = [
+    ".",
+    "ffi"
+]
