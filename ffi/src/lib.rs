@@ -11,6 +11,9 @@ use std::{
 use cqdb::{CQDBWriter, Flag, CQDB};
 use libc::FILE;
 
+#[macro_use]
+mod macros;
+
 /// No flag
 pub const CQDB_NONE: c_uint = 0;
 /// A reverse lookup array is omitted
@@ -41,60 +44,70 @@ pub struct tag_cqdb_writer {
 
 pub type cqdb_writer_t = tag_cqdb_writer;
 
-/// Delete the CQDB reader.
-#[no_mangle]
-pub unsafe extern "C" fn cqdb_delete(db: *mut cqdb_t) {
-    if !db.is_null() {
-        Box::from_raw(db as *mut CQDB);
+ffi_fn! {
+    /// Delete the CQDB reader.
+    fn cqdb_delete(db: *mut cqdb_t) {
+        if !db.is_null() {
+            unsafe { Box::from_raw(db as *mut CQDB) };
+        }
     }
 }
 
-/// Open a new CQDB reader on a memory block.
-#[no_mangle]
-pub unsafe extern "C" fn cqdb_reader(buffer: *const c_void, size: usize) -> *mut cqdb_t {
-    let buf = std::slice::from_raw_parts(buffer as *const u8, size);
-    let db = CQDB::new(buf).unwrap();
-    Box::into_raw(Box::new(db)) as *mut cqdb_t
-}
-
-/// Get the number of associations in the database.
-#[no_mangle]
-pub unsafe extern "C" fn cqdb_num(db: *mut cqdb_t) -> c_int {
-    let db = db as *mut CQDB;
-    (*db).num() as c_int
-}
-
-/// Retrieve the identifier associated with a string.
-#[no_mangle]
-pub unsafe extern "C" fn cqdb_to_id(db: *mut cqdb_t, s: *const c_char) -> c_int {
-    let db = db as *mut CQDB;
-    let c_str = CStr::from_ptr(s).to_str().unwrap();
-    (*db).to_id(c_str).unwrap_or(0) as c_int
-}
-
-/// Retrieve the string associated with an identifier.
-#[no_mangle]
-pub unsafe extern "C" fn cqdb_to_string(db: *mut cqdb_t, id: c_int) -> *const c_char {
-    let db = db as *mut CQDB;
-    if let Some(s) = (*db).to_str(id as u32) {
-        // Safety
-        // This is safe because s is borrowed from the original buffer
-        s.as_ptr() as *const c_char
-    } else {
-        ptr::null_mut()
+ffi_fn! {
+    /// Open a new CQDB reader on a memory block.
+    fn cqdb_reader(buffer: *const c_void, size: usize) -> *mut cqdb_t {
+        let buf = unsafe { std::slice::from_raw_parts(buffer as *const u8, size) };
+        let db = CQDB::new(buf).unwrap();
+        Box::into_raw(Box::new(db)) as *mut cqdb_t
     }
 }
 
-/// Create a new CQDB writer on a seekable stream.
-///
-/// This function initializes a database on the seekable stream and returns the pointer to a `::cqdb_writer_t` instanceto write the database.
-/// The stream must have the writable and binary flags.
-/// The database creation flag must be zero except when the reverse lookup array is unnecessary;
-/// specifying `::CQDB_ONEWAY` flag will save the storage space for the reverse lookup array.
-/// Once calling this function, one should avoid accessing the seekable stream directly until calling `cqdb_writer_close()`.
-#[no_mangle]
-pub unsafe extern "C" fn cqdb_writer(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
-    cqdb_writer_impl(fp, flag)
+ffi_fn! {
+    /// Get the number of associations in the database.
+    fn cqdb_num(db: *mut cqdb_t) -> c_int {
+        let db = db as *mut CQDB;
+        unsafe {
+            (*db).num() as c_int
+        }
+    }
+}
+
+ffi_fn! {
+    /// Retrieve the identifier associated with a string.
+    fn cqdb_to_id(db: *mut cqdb_t, s: *const c_char) -> c_int {
+        let db = db as *mut CQDB;
+        unsafe {
+            let c_str = CStr::from_ptr(s).to_str().unwrap();
+            (*db).to_id(c_str).unwrap_or(0) as c_int
+        }
+    }
+}
+
+ffi_fn! {
+    /// Retrieve the string associated with an identifier.
+    fn cqdb_to_string(db: *mut cqdb_t, id: c_int) -> *const c_char {
+        let db = db as *mut CQDB;
+        if let Some(s) = unsafe { (*db).to_str(id as u32) } {
+            // Safety
+            // This is safe because s is borrowed from the original buffer
+            s.as_ptr() as *const c_char
+        } else {
+            ptr::null_mut()
+        }
+    }
+}
+
+ffi_fn! {
+    /// Create a new CQDB writer on a seekable stream.
+    ///
+    /// This function initializes a database on the seekable stream and returns the pointer to a `::cqdb_writer_t` instanceto write the database.
+    /// The stream must have the writable and binary flags.
+    /// The database creation flag must be zero except when the reverse lookup array is unnecessary;
+    /// specifying `::CQDB_ONEWAY` flag will save the storage space for the reverse lookup array.
+    /// Once calling this function, one should avoid accessing the seekable stream directly until calling `cqdb_writer_close()`.
+    fn cqdb_writer(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
+        unsafe { cqdb_writer_impl(fp, flag) }
+    }
 }
 
 #[cfg(unix)]
@@ -102,6 +115,7 @@ unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
     use std::os::unix::io::FromRawFd;
 
     // Safely get the file descriptor associated with FILE by fflush()ing its contents first
+    // Reference: https://stackoverflow.com/a/31688641
     libc::fflush(fp);
     let fd = libc::fileno(fp);
     // Avoid drop the File object since it's borrowed
@@ -121,6 +135,7 @@ unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
     use std::os::windows::io::{FromRawHandle, RawHandle};
 
     // Safely get the file descriptor associated with FILE by fflush()ing its contents first
+    // Reference: https://stackoverflow.com/a/31688641
     libc::fflush(fp);
     let fd = libc::fileno(fp);
     let handle = libc::get_osfhandle(fd) as RawHandle;
@@ -136,44 +151,51 @@ unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
     Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
 }
 
-/// Close a CQDB writer.
-///
-/// This function finalizes the database on the stream.
-/// If successful, the data remaining on the memory is flushed to the stream;
-/// the stream position is moved to the end of the chunk.
-/// If an unexpected error occurs, this function tries to rewind the stream position to
-/// the original position when the function `cqdb_writer()` was called.
-#[no_mangle]
-pub unsafe extern "C" fn cqdb_writer_close(dbw: *mut cqdb_writer_t) -> c_int {
-    if !dbw.is_null() {
-        let inner = (*dbw).inner as *mut CQDBWriter<File>;
-        // Drop CQDBWriter
-        Box::from_raw(inner);
-        // Re-sync file position so that ftell works correctly
-        let offset = libc::lseek(libc::fileno((*dbw).file), 0, libc::SEEK_CUR);
-        libc::fseek((*dbw).file, offset, libc::SEEK_SET);
-        Box::from_raw(dbw);
+ffi_fn! {
+    /// Close a CQDB writer.
+    ///
+    /// This function finalizes the database on the stream.
+    /// If successful, the data remaining on the memory is flushed to the stream;
+    /// the stream position is moved to the end of the chunk.
+    /// If an unexpected error occurs, this function tries to rewind the stream position to
+    /// the original position when the function `cqdb_writer()` was called.
+    fn cqdb_writer_close(dbw: *mut cqdb_writer_t) -> c_int {
+        if !dbw.is_null() {
+            unsafe {
+                let inner = (*dbw).inner as *mut CQDBWriter<File>;
+                // Drop CQDBWriter
+                Box::from_raw(inner);
+                // Re-sync file position so that ftell works correctly
+                // Reference: https://stackoverflow.com/a/31688641
+                let offset = libc::lseek(libc::fileno((*dbw).file), 0, libc::SEEK_CUR);
+                libc::fseek((*dbw).file, offset, libc::SEEK_SET);
+                Box::from_raw(dbw);
+            }
+        }
+        // FIXME error no
+        0
     }
-    // FIXME error no
-    0
 }
 
-/// Put a string/identifier association to the database.
-///
-/// This function append a string/identifier association into the database.
-/// Make sure that the string and/or identifier have never been inserted to the database
-/// and that the identifier is a non-negative value.
-#[no_mangle]
-pub unsafe extern "C" fn cqdb_writer_put(
-    dbw: *mut cqdb_writer_t,
-    s: *const c_char,
-    id: c_int,
-) -> c_int {
-    let dbw = (*dbw).inner as *mut CQDBWriter<File>;
-    let c_str = CStr::from_ptr(s).to_str().unwrap();
-    (*dbw).put(c_str, id as u32).unwrap();
-    // FIXME error no
-    0
+ffi_fn! {
+    /// Put a string/identifier association to the database.
+    ///
+    /// This function append a string/identifier association into the database.
+    /// Make sure that the string and/or identifier have never been inserted to the database
+    /// and that the identifier is a non-negative value.
+    fn cqdb_writer_put(
+        dbw: *mut cqdb_writer_t,
+        s: *const c_char,
+        id: c_int
+    ) -> c_int {
+        unsafe {
+            let dbw = (*dbw).inner as *mut CQDBWriter<File>;
+            let c_str = CStr::from_ptr(s).to_str().unwrap();
+            (*dbw).put(c_str, id as u32).unwrap();
+        }
+        // FIXME error no
+        0
+    }
 }
 
 #[cfg(test)]
