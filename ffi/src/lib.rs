@@ -101,6 +101,8 @@ pub unsafe extern "C" fn cqdb_writer(fp: *mut FILE, flag: c_int) -> *mut cqdb_wr
 unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
     use std::os::unix::io::FromRawFd;
 
+    // Safely get the file descriptor associated with FILE by fflush()ing its contents first
+    libc::fflush(fp);
     let fd = libc::fileno(fp);
     // Avoid drop the File object since it's borrowed
     let mut file = ManuallyDrop::new(File::from_raw_fd(fd));
@@ -118,6 +120,8 @@ unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
 unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
     use std::os::windows::io::{FromRawHandle, RawHandle};
 
+    // Safely get the file descriptor associated with FILE by fflush()ing its contents first
+    libc::fflush(fp);
     let fd = libc::fileno(fp);
     let handle = libc::get_osfhandle(fd) as RawHandle;
     // Avoid drop the File object since it's borrowed
