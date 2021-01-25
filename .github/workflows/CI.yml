@@ -34,6 +34,14 @@ jobs:
         with:
           command: test
           args: --all
+      - name: Run cargo-tarpaulin
+        uses: actions-rs/tarpaulin@v0.1
+        with:
+          args: --all
+        if: matrix.os == 'ubuntu-latest'
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v1
+        if: matrix.os == 'ubuntu-latest'
 
   fmt:
     name: Rustfmt
