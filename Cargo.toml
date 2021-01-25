@@ -5,7 +5,7 @@ authors = ["messense <messense@icloud.com>"]
 description = "Rust implementation of Constant Quark Database (CQDB)"
 edition = "2018"
 license = "MIT"
-repository = "https://github.com/messense/cqdb-sys"
+repository = "https://github.com/messense/cqdb-rs"
 keywords = ["cdb", "cqdb", "crfsuite"]
 readme = "README.md"
 
