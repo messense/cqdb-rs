@@ -101,5 +101,6 @@ fn test_cqdb_sys_read_cqdb_writer() {
             let key = CStr::from_ptr(ptr).to_str().unwrap();
             assert_eq!(key, format!("{:08}", id));
         }
+        cqdb_sys::cqdb_delete(db);
     }
 }
