@@ -230,11 +230,11 @@ ffi_fn! {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::ffi::CString;
+    use std::{ffi::CString, fs};
 
     #[test]
     fn test_cqdb_read_cqdb_ffi() {
-        let name = CString::new("../tests/output/cqdb-ffi.cqdb").unwrap();
+        let name = CString::new("../tests/output/cqdb-ffi-1.cqdb").unwrap();
         let mode = CString::new("wb").unwrap();
         unsafe {
             let fp = libc::fopen(name.as_ptr(), mode.as_ptr());
@@ -248,8 +248,39 @@ mod test {
             assert_eq!(0, cqdb_writer_close(writer));
             libc::fclose(fp);
         }
-        let buf = std::fs::read("../tests/output/cqdb-ffi.cqdb").unwrap();
+        let buf = std::fs::read("../tests/output/cqdb-ffi-1.cqdb").unwrap();
         let db = CQDB::new(&buf).unwrap();
         assert_eq!(100, db.num());
+    }
+
+    #[test]
+    fn test_cqdb_ffi_read_cqdb_writer() {
+        let mut file = fs::File::create("../tests/output/cqdb-ffi-2.cqdb").unwrap();
+        let mut writer = CQDBWriter::new(&mut file).unwrap();
+        for id in 0..100 {
+            let key = format!("{:08}", id);
+            writer.put(&key, id).unwrap();
+        }
+        drop(writer);
+
+        let buf = fs::read("../tests/output/cqdb-ffi-2.cqdb").unwrap();
+        unsafe {
+            let db = cqdb_reader(buf.as_ptr() as _, buf.len());
+            assert!(!db.is_null());
+            // Forward lookups, strings to integer indentifiers
+            for id in 0..100 {
+                let key = CString::new(format!("{:08}", id)).unwrap();
+                let j = cqdb_to_id(db, key.as_ptr());
+                assert_eq!(id, j);
+            }
+            // Backward lookups: integer identifiers to strings.
+            for id in 0..100 {
+                let ptr = cqdb_to_string(db, id);
+                assert!(!ptr.is_null());
+                let key = CStr::from_ptr(ptr).to_str().unwrap();
+                assert_eq!(key, format!("{:08}", id));
+            }
+            cqdb_delete(db);
+        }
     }
 }
