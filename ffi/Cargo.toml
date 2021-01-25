@@ -13,3 +13,6 @@ libc = "0.2.82"
 
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+path-slash = "0.1.4"

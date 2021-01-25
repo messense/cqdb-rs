@@ -1,5 +1,7 @@
 use std::{env, fs, path::PathBuf};
 
+use path_slash::PathExt;
+
 fn main() {
     println!("cargo:rerun-if-changed=include/cqdb.h");
     println!("cargo:rerun-if-changed=Config.cmake.in");
@@ -13,7 +15,10 @@ fn main() {
         fs::read_to_string("Config.cmake.in")
             .unwrap()
             .replace("@PROJECT_NAME@", "cqdb")
-            .replace("@PROJECT_BINARY_DIR@", dst.to_str().unwrap()),
+            .replace(
+                "@PROJECT_INCLUDE_DIR@",
+                &dst.join("include").to_slash().unwrap(),
+            ),
     )
     .unwrap();
 
