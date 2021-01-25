@@ -19,6 +19,15 @@ pub const CQDB_NONE: c_uint = 0;
 /// A reverse lookup array is omitted
 pub const CQDB_ONEWAY: c_uint = 1;
 
+/// Success
+pub const CQDB_SUCCESS: c_int = 0;
+/// Invalid id parameters
+pub const CQDB_ERROR_INVALIDID: c_int = -1018;
+/// Error in file write operations.
+pub const CQDB_ERROR_FILEWRITE: c_int = -1021;
+/// String not found
+pub const CQDB_ERROR_NOTFOUND: c_int = -1023;
+
 /// CQDB Reader API
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -57,8 +66,11 @@ ffi_fn! {
     /// Open a new CQDB reader on a memory block.
     fn cqdb_reader(buffer: *const c_void, size: usize) -> *mut cqdb_t {
         let buf = unsafe { std::slice::from_raw_parts(buffer as *const u8, size) };
-        let db = CQDB::new(buf).unwrap();
-        Box::into_raw(Box::new(db)) as *mut cqdb_t
+        if let Ok(db) = CQDB::new(buf) {
+            Box::into_raw(Box::new(db)) as *mut cqdb_t
+        } else {
+            ptr::null_mut()
+        }
     }
 }
 
@@ -74,17 +86,21 @@ ffi_fn! {
 
 ffi_fn! {
     /// Retrieve the identifier associated with a string.
+    ///
+    /// Returns the non-negative identifier if successful, negative status code otherwise.
     fn cqdb_to_id(db: *mut cqdb_t, s: *const c_char) -> c_int {
         let db = db as *mut CQDB;
         unsafe {
             let c_str = CStr::from_ptr(s).to_str().unwrap();
-            (*db).to_id(c_str).unwrap_or(0) as c_int
+            (*db).to_id(c_str).map(|id| id as c_int).unwrap_or(CQDB_ERROR_NOTFOUND)
         }
     }
 }
 
 ffi_fn! {
     /// Retrieve the string associated with an identifier.
+    ///
+    /// Pointer to the string associated with the identifier if successful; otherwise NULL.
     fn cqdb_to_string(db: *mut cqdb_t, id: c_int) -> *const c_char {
         let db = db as *mut CQDB;
         if let Some(s) = unsafe { (*db).to_str(id as u32) } {
@@ -125,9 +141,12 @@ unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
     } else {
         Flag::NONE
     };
-    let writer = CQDBWriter::with_flag(&mut *file, flag).unwrap();
-    let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
-    Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
+    if let Ok(writer) = CQDBWriter::with_flag(&mut *file, flag) {
+        let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
+        Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
+    } else {
+        ptr::null_mut()
+    }
 }
 
 #[cfg(windows)]
@@ -146,9 +165,12 @@ unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
     } else {
         Flag::NONE
     };
-    let writer = CQDBWriter::with_flag(&mut *file, flag).unwrap();
-    let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
-    Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
+    if let Ok(writer) = CQDBWriter::with_flag(&mut *file, flag) {
+        let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
+        Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
+    } else {
+        ptr::null_mut()
+    }
 }
 
 ffi_fn! {
@@ -172,8 +194,7 @@ ffi_fn! {
                 Box::from_raw(dbw);
             }
         }
-        // FIXME error no
-        0
+        CQDB_SUCCESS
     }
 }
 
@@ -188,13 +209,17 @@ ffi_fn! {
         s: *const c_char,
         id: c_int
     ) -> c_int {
+        if id < 0 {
+            return CQDB_ERROR_INVALIDID;
+        }
         unsafe {
             let dbw = (*dbw).inner as *mut CQDBWriter<File>;
             let c_str = CStr::from_ptr(s).to_str().unwrap();
-            (*dbw).put(c_str, id as u32).unwrap();
+            if let Err(_) = (*dbw).put(c_str, id as u32) {
+                return CQDB_ERROR_FILEWRITE;
+            }
         }
-        // FIXME error no
-        0
+        CQDB_SUCCESS
     }
 }
 
