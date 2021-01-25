@@ -350,7 +350,7 @@ impl<'a, T: Write + Seek> CQDBWriter<'a, T> {
     }
 
     /// Close the writer, flush the file stream
-    pub fn close(&mut self) -> io::Result<()> {
+    fn close(&mut self) -> io::Result<()> {
         let mut header = Header {
             chunk_id: *CHUNK_ID,
             flag: self.flag.bits,
