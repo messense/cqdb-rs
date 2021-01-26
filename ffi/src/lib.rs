@@ -3,6 +3,7 @@
 use std::{
     ffi::CStr,
     fs::File,
+    io::BufWriter,
     mem::ManuallyDrop,
     os::raw::{c_char, c_int, c_uint, c_void},
     ptr,
@@ -122,12 +123,28 @@ ffi_fn! {
     /// specifying `::CQDB_ONEWAY` flag will save the storage space for the reverse lookup array.
     /// Once calling this function, one should avoid accessing the seekable stream directly until calling `cqdb_writer_close()`.
     fn cqdb_writer(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
-        unsafe { cqdb_writer_impl(fp, flag) }
+        unsafe {
+            let file = new_file_from_libc(fp);
+            let mut buf_writer = ManuallyDrop::new(BufWriter::new(file));
+            let flag = if flag as c_uint == CQDB_ONEWAY {
+                Flag::ONEWAY
+            } else {
+                Flag::NONE
+            };
+            let writer = match CQDBWriter::with_flag(&mut *buf_writer, flag) {
+                Ok(writer) => {
+                    let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
+                    Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
+                }
+                Err(_) => ptr::null_mut(),
+            };
+            writer
+        }
     }
 }
 
 #[cfg(unix)]
-unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
+unsafe fn new_file_from_libc(fp: *mut FILE) -> File {
     use std::os::unix::io::FromRawFd;
 
     // Safely get the file descriptor associated with FILE by fflush()ing its contents first
@@ -135,24 +152,11 @@ unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
     libc::fflush(fp);
     let fd = libc::fileno(fp);
     // Avoid drop the File object since it's borrowed
-    let mut file = ManuallyDrop::new(File::from_raw_fd(fd));
-    let flag = if flag as c_uint == CQDB_ONEWAY {
-        Flag::ONEWAY
-    } else {
-        Flag::NONE
-    };
-    let writer = match CQDBWriter::with_flag(&mut *file, flag) {
-        Ok(writer) => {
-            let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
-            Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
-        }
-        Err(_) => ptr::null_mut(),
-    };
-    writer
+    File::from_raw_fd(fd)
 }
 
 #[cfg(windows)]
-unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
+unsafe fn new_file_from_libc(fp: *mut FILE) -> File {
     use std::os::windows::io::{FromRawHandle, RawHandle};
 
     // Safely get the file descriptor associated with FILE by fflush()ing its contents first
@@ -161,20 +165,7 @@ unsafe fn cqdb_writer_impl(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
     let fd = libc::fileno(fp);
     let handle = libc::get_osfhandle(fd) as RawHandle;
     // Avoid drop the File object since it's borrowed
-    let mut file = ManuallyDrop::new(File::from_raw_handle(handle));
-    let flag = if flag as c_uint == CQDB_ONEWAY {
-        Flag::ONEWAY
-    } else {
-        Flag::NONE
-    };
-    let writer = match CQDBWriter::with_flag(&mut *file, flag) {
-        Ok(writer) => {
-            let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
-            Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
-        }
-        Err(_) => ptr::null_mut(),
-    };
-    writer
+    File::from_raw_handle(handle)
 }
 
 ffi_fn! {
@@ -188,7 +179,7 @@ ffi_fn! {
     fn cqdb_writer_close(dbw: *mut cqdb_writer_t) -> c_int {
         if !dbw.is_null() {
             unsafe {
-                let inner = (*dbw).inner as *mut CQDBWriter<File>;
+                let inner = (*dbw).inner as *mut CQDBWriter<BufWriter<File>>;
                 // Drop CQDBWriter
                 Box::from_raw(inner);
                 // Re-sync file position so that ftell works correctly
@@ -217,7 +208,7 @@ ffi_fn! {
             return CQDB_ERROR_INVALIDID;
         }
         unsafe {
-            let dbw = (*dbw).inner as *mut CQDBWriter<File>;
+            let dbw = (*dbw).inner as *mut CQDBWriter<BufWriter<File>>;
             let c_str = CStr::from_ptr(s).to_str().unwrap();
             if let Err(_) = (*dbw).put(c_str, id as u32) {
                 return CQDB_ERROR_FILEWRITE;
