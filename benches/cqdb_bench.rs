@@ -70,8 +70,8 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("cqdb-rs", |b| {
         b.iter(|| {
             let file = fs::File::create("tests/output/cqdb-writer-bench-1.cqdb").unwrap();
-            let mut buf_writer = BufWriter::new(file);
-            let mut writer = CQDBWriter::new(&mut buf_writer).unwrap();
+            let buf_writer = BufWriter::new(file);
+            let mut writer = CQDBWriter::new(buf_writer).unwrap();
             for id in 0..100 {
                 let key = format!("{:08}", id);
                 writer.put(&key, id).unwrap();

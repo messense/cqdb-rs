@@ -48,8 +48,8 @@ fn test_cqdb_read_cqdb_sys() {
 
 #[test]
 fn test_cqdb_writer() {
-    let mut file = fs::File::create("tests/output/cqdb-writer-1.cqdb").unwrap();
-    let mut writer = CQDBWriter::new(&mut file).unwrap();
+    let file = fs::File::create("tests/output/cqdb-writer-1.cqdb").unwrap();
+    let mut writer = CQDBWriter::new(file).unwrap();
     for id in 0..100 {
         let key = format!("{:08}", id);
         writer.put(&key, id).unwrap();
@@ -76,8 +76,8 @@ fn test_cqdb_writer() {
 
 #[test]
 fn test_cqdb_sys_read_cqdb_writer() {
-    let mut file = fs::File::create("tests/output/cqdb-writer-2.cqdb").unwrap();
-    let mut writer = CQDBWriter::new(&mut file).unwrap();
+    let file = fs::File::create("tests/output/cqdb-writer-2.cqdb").unwrap();
+    let mut writer = CQDBWriter::new(file).unwrap();
     for id in 0..100 {
         let key = format!("{:08}", id);
         writer.put(&key, id).unwrap();
