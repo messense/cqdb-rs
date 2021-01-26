@@ -25,6 +25,7 @@ bitflags! {
     }
 }
 
+#[inline]
 fn unpack_u32(buf: &[u8]) -> io::Result<u32> {
     if buf.len() < 4 {
         return Err(io::Error::new(

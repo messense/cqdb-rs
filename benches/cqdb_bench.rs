@@ -1,4 +1,4 @@
-use std::{ffi::CString, fs};
+use std::{ffi::CString, fs, io::BufWriter};
 
 use cqdb::{CQDBWriter, CQDB};
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -69,8 +69,9 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("writer");
     group.bench_function("cqdb-rs", |b| {
         b.iter(|| {
-            let mut file = fs::File::create("tests/output/cqdb-writer-bench-1.cqdb").unwrap();
-            let mut writer = CQDBWriter::new(&mut file).unwrap();
+            let file = fs::File::create("tests/output/cqdb-writer-bench-1.cqdb").unwrap();
+            let mut reader = BufWriter::new(file);
+            let mut writer = CQDBWriter::new(&mut reader).unwrap();
             for id in 0..100 {
                 let key = format!("{:08}", id);
                 writer.put(&key, id).unwrap();
