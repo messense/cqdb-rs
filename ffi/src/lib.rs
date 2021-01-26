@@ -235,6 +235,11 @@ mod test {
                 let s = CString::new(format!("{:08}", i)).unwrap();
                 assert_eq!(0, cqdb_writer_put(writer, s.as_ptr(), i));
             }
+            let s = CString::new(format!("{:08}", 10)).unwrap();
+            assert_eq!(
+                CQDB_ERROR_INVALIDID,
+                cqdb_writer_put(writer, s.as_ptr(), -1)
+            );
             assert_eq!(0, cqdb_writer_close(writer));
             libc::fclose(fp);
         }
@@ -257,19 +262,27 @@ mod test {
         unsafe {
             let db = cqdb_reader(buf.as_ptr() as _, buf.len());
             assert!(!db.is_null());
+            let size = cqdb_num(db);
             // Forward lookups, strings to integer indentifiers
-            for id in 0..100 {
+            for id in 0..size {
                 let key = CString::new(format!("{:08}", id)).unwrap();
                 let j = cqdb_to_id(db, key.as_ptr());
                 assert_eq!(id, j);
             }
+            let key = CString::new("non-exists-key").unwrap();
+            let j = cqdb_to_id(db, key.as_ptr());
+            assert!(j < 0);
+
             // Backward lookups: integer identifiers to strings.
-            for id in 0..100 {
+            for id in 0..size {
                 let ptr = cqdb_to_string(db, id);
                 assert!(!ptr.is_null());
                 let key = CStr::from_ptr(ptr).to_str().unwrap();
                 assert_eq!(key, format!("{:08}", id));
             }
+            let ptr = cqdb_to_string(db, size + 100);
+            assert!(ptr.is_null());
+
             cqdb_delete(db);
         }
     }

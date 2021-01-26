@@ -17,12 +17,14 @@ fn test_cqdb_reader() {
         let j = db.to_id(&s).unwrap();
         assert_eq!(i as u32, j);
     }
+    assert!(db.to_id("non-existing-key").is_none());
 
     // Backward lookups: integer identifiers to strings.
     for i in 0..db.num() {
         let value = db.to_str(i as u32).unwrap();
         assert_eq!(value, format!("{:08}", i));
     }
+    assert!(db.to_str(db.num() + 100).is_none());
 }
 
 #[test]
@@ -51,7 +53,7 @@ fn test_cqdb_writer() {
     let file = fs::File::create("tests/output/cqdb-writer-1.cqdb").unwrap();
     let mut writer = CQDBWriter::new(file).unwrap();
     for id in 0..100 {
-        let key = format!("{:08}", id);
+        let key = format!("{:013}", id);
         writer.put(&key, id).unwrap();
     }
     drop(writer);
@@ -62,7 +64,7 @@ fn test_cqdb_writer() {
 
     // Forward lookups, strings to integer indentifiers
     for i in 0..db.num() {
-        let s = format!("{:08}", i);
+        let s = format!("{:013}", i);
         let j = db.to_id(&s).unwrap();
         assert_eq!(i as u32, j);
     }
@@ -70,7 +72,7 @@ fn test_cqdb_writer() {
     // Backward lookups: integer identifiers to strings.
     for i in 0..db.num() {
         let value = db.to_str(i as u32).unwrap();
-        assert_eq!(value, format!("{:08}", i));
+        assert_eq!(value, format!("{:013}", i));
     }
 }
 
