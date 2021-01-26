@@ -4,7 +4,6 @@ use std::{
     ffi::CStr,
     fs::File,
     io::BufWriter,
-    mem::ManuallyDrop,
     os::raw::{c_char, c_int, c_uint, c_void},
     ptr,
 };
@@ -125,13 +124,13 @@ ffi_fn! {
     fn cqdb_writer(fp: *mut FILE, flag: c_int) -> *mut cqdb_writer_t {
         unsafe {
             let file = new_file_from_libc(fp);
-            let mut buf_writer = ManuallyDrop::new(BufWriter::new(file));
+            let buf_writer = BufWriter::new(file);
             let flag = if flag as c_uint == CQDB_ONEWAY {
                 Flag::ONEWAY
             } else {
                 Flag::NONE
             };
-            let writer = match CQDBWriter::with_flag(&mut *buf_writer, flag) {
+            let writer = match CQDBWriter::with_flag(buf_writer, flag) {
                 Ok(writer) => {
                     let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
                     Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
@@ -150,8 +149,8 @@ unsafe fn new_file_from_libc(fp: *mut FILE) -> File {
     // Safely get the file descriptor associated with FILE by fflush()ing its contents first
     // Reference: https://stackoverflow.com/a/31688641
     libc::fflush(fp);
-    let fd = libc::fileno(fp);
-    // Avoid drop the File object since it's borrowed
+    // `from_raw_fd` takes the ownship of the file descriptor, use `libc::dup` to get a new fd
+    let fd = libc::dup(libc::fileno(fp));
     File::from_raw_fd(fd)
 }
 
@@ -162,9 +161,9 @@ unsafe fn new_file_from_libc(fp: *mut FILE) -> File {
     // Safely get the file descriptor associated with FILE by fflush()ing its contents first
     // Reference: https://stackoverflow.com/a/31688641
     libc::fflush(fp);
-    let fd = libc::fileno(fp);
+    let fd = libc::dup(libc::fileno(fp));
     let handle = libc::get_osfhandle(fd) as RawHandle;
-    // Avoid drop the File object since it's borrowed
+    // `from_raw_handle` takes the ownship of the file descriptor, use `libc::dup` to get a new fd
     File::from_raw_handle(handle)
 }
 

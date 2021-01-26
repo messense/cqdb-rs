@@ -104,8 +104,8 @@ struct Bucket {
 
 /// Writer for a constant quark database
 #[derive(Debug)]
-pub struct CQDBWriter<'a, T: Write + Seek> {
-    writer: &'a mut T,
+pub struct CQDBWriter<T: Write + Seek> {
+    writer: T,
     /// Operation flag
     flag: Flag,
     /// Offset address to the head of this database
@@ -286,14 +286,14 @@ impl<'a> CQDB<'a> {
     }
 }
 
-impl<'a, T: Write + Seek> CQDBWriter<'a, T> {
+impl<T: Write + Seek> CQDBWriter<T> {
     /// Create a new CQDB writer
-    pub fn new(writer: &'a mut T) -> io::Result<Self> {
+    pub fn new(writer: T) -> io::Result<Self> {
         Self::with_flag(writer, Flag::NONE)
     }
 
     /// Create a new CQDB writer with flag
-    pub fn with_flag(writer: &'a mut T, flag: Flag) -> io::Result<Self> {
+    pub fn with_flag(mut writer: T, flag: Flag) -> io::Result<Self> {
         let begin = writer.seek(SeekFrom::Current(0))? as u32;
         let current = (mem::size_of::<Header>() + mem::size_of::<TableRef>() * NUM_TABLES) as u32;
         // Move the file pointer to the offset to the first key/data pair
@@ -434,7 +434,7 @@ impl<'a, T: Write + Seek> CQDBWriter<'a, T> {
     }
 }
 
-impl<'a, T: Write + Seek> Drop for CQDBWriter<'a, T> {
+impl<T: Write + Seek> Drop for CQDBWriter<T> {
     fn drop(&mut self) {
         if let Ok(()) = self.close() {}
     }
