@@ -202,6 +202,7 @@ impl<'a> CQDB<'a> {
         })
     }
 
+    #[inline]
     fn read_bucket(buf: &[u8], offset: usize, num: usize) -> io::Result<Vec<Bucket>> {
         let mut buckets = Vec::with_capacity(num);
         let mut index = offset;
@@ -215,6 +216,7 @@ impl<'a> CQDB<'a> {
         Ok(buckets)
     }
 
+    #[inline]
     fn read_backward_links(buf: &[u8], offset: usize, num: usize) -> io::Result<Vec<u32>> {
         let mut bwd = Vec::with_capacity(num);
         let mut index = offset;
@@ -226,6 +228,7 @@ impl<'a> CQDB<'a> {
     }
 
     /// Get the number of associations in the database
+    #[inline]
     pub fn num(&self) -> u32 {
         self.num
     }
@@ -235,6 +238,7 @@ impl<'a> CQDB<'a> {
         self.to_id_impl(s).unwrap_or_default()
     }
 
+    #[inline]
     fn to_id_impl(&self, s: &str) -> io::Result<Option<u32>> {
         let hash = crate::hash::jhash(s.as_bytes(), s.len() as u32 + 1, 0);
         let table_index = hash % NUM_TABLES as u32;
@@ -270,6 +274,7 @@ impl<'a> CQDB<'a> {
         self.to_str_impl(id).unwrap_or_default()
     }
 
+    #[inline]
     fn to_str_impl(&'a self, id: u32) -> io::Result<Option<&'a BStr>> {
         // Check if the current database supports the backward lookup
         if !self.bwd.is_empty() && (id as u32) < self.header.bwd_size {
