@@ -6,14 +6,14 @@ use criterion::{criterion_group, criterion_main, Criterion};
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("reader");
     group.bench_function("cqdb-rs", |b| {
+        let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
         b.iter(|| {
-            let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
             let _db = CQDB::new(&buf).unwrap();
         })
     });
     group.bench_function("cqdb-c", |b| {
+        let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
         b.iter(|| {
-            let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
             let db = unsafe { cqdb_sys::cqdb_reader(buf.as_ptr() as _, buf.len()) };
             assert!(!db.is_null());
         })
@@ -22,9 +22,9 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("to_id");
     group.bench_function("cqdb-rs", |b| {
+        let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
+        let db = CQDB::new(&buf).unwrap();
         b.iter(|| {
-            let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
-            let db = CQDB::new(&buf).unwrap();
             for i in 0..db.num() {
                 let s = format!("{:08}", i);
                 let _j = db.to_id(&s).unwrap();
@@ -32,10 +32,10 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
     group.bench_function("cqdb-c", |b| {
+        let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
+        let db = unsafe { cqdb_sys::cqdb_reader(buf.as_ptr() as _, buf.len()) };
+        assert!(!db.is_null());
         b.iter(|| {
-            let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
-            let db = unsafe { cqdb_sys::cqdb_reader(buf.as_ptr() as _, buf.len()) };
-            assert!(!db.is_null());
             for id in 0..100 {
                 let key = CString::new(format!("{:08}", id)).unwrap();
                 let _j = unsafe { cqdb_sys::cqdb_to_id(db, key.as_ptr()) };
@@ -46,18 +46,18 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("to_string");
     group.bench_function("cqdb-rs", |b| {
+        let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
+        let db = CQDB::new(&buf).unwrap();
         b.iter(|| {
-            let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
-            let db = CQDB::new(&buf).unwrap();
             for i in 0..db.num() {
                 let _value = db.to_str(i as u32).unwrap();
             }
         })
     });
     group.bench_function("cqdb-c", |b| {
+        let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
+        let db = unsafe { cqdb_sys::cqdb_reader(buf.as_ptr() as _, buf.len()) };
         b.iter(|| {
-            let buf = fs::read("tests/fixtures/test.cqdb").unwrap();
-            let db = unsafe { cqdb_sys::cqdb_reader(buf.as_ptr() as _, buf.len()) };
             assert!(!db.is_null());
             for id in 0..100 {
                 let _ptr = unsafe { cqdb_sys::cqdb_to_string(db, id) };
