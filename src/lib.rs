@@ -8,6 +8,7 @@ use std::{
 
 use arr_macro::arr;
 use bitflags::bitflags;
+use bstr::{BStr, ByteSlice};
 
 mod hash;
 
@@ -265,11 +266,11 @@ impl<'a> CQDB<'a> {
     }
 
     /// Retrieve the string associated with an identifier
-    pub fn to_str(&'a self, id: u32) -> Option<&'a str> {
+    pub fn to_str(&'a self, id: u32) -> Option<&'a BStr> {
         self.to_str_impl(id).unwrap_or_default()
     }
 
-    fn to_str_impl(&'a self, id: u32) -> io::Result<Option<&'a str>> {
+    fn to_str_impl(&'a self, id: u32) -> io::Result<Option<&'a BStr>> {
         // Check if the current database supports the backward lookup
         if !self.bwd.is_empty() && (id as u32) < self.header.bwd_size {
             let offset = self.bwd[id as usize];
@@ -277,9 +278,7 @@ impl<'a> CQDB<'a> {
                 let mut index = offset as usize + 4; // Skip key data
                 let value_size = unpack_u32(&self.buffer[index..])? as usize - 1; // value_size includes NUL byte
                 index += 4;
-                if let Ok(s) = std::str::from_utf8(&self.buffer[index..index + value_size]) {
-                    return Ok(Some(s));
-                }
+                return Ok(Some(&self.buffer[index..index + value_size].as_bstr()));
             }
         }
         Ok(None)
