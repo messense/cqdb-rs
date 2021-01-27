@@ -14,7 +14,7 @@ Add it to your ``Cargo.toml``:
 
 ```toml
 [dependencies]
-cqdb = "0.4"
+cqdb = "0.5"
 ```
 
 ## License
