@@ -1,0 +1,13 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+sharedlibdir=@sharedlibdir@
+includedir=@includedir@
+
+Name: libcqdb
+Description: C binding to the Rust implementation of Constant Quark Database (CQDB)
+Version: @VERSION@
+
+Requires:
+Libs: -L${libdir} -L${sharedlibdir} -libcqdb
+Cflags: -I${includedir}
