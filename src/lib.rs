@@ -6,7 +6,6 @@ use std::{
     mem,
 };
 
-use arr_macro::arr;
 use bitflags::bitflags;
 use bstr::{BStr, ByteSlice};
 
@@ -174,7 +173,7 @@ impl<'a> CQDB<'a> {
             bwd_offset,
         };
         let mut num_db = 0;
-        let mut tables = arr![Table::default(); 256];
+        let mut tables: [Table; NUM_TABLES] = array_init::array_init(|_| Table::default());
         for i in 0..NUM_TABLES {
             let table_offset = unpack_u32(&buf[index..])?;
             index += 4;
@@ -307,7 +306,7 @@ impl<T: Write + Seek> CQDBWriter<T> {
             flag,
             begin,
             current,
-            tables: arr![Table::default(); 256],
+            tables: array_init::array_init(|_| Table::default()),
             bwd: Vec::new(),
             bwd_num: 0,
             bwd_size: 0,
