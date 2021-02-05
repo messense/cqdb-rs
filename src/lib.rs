@@ -314,9 +314,10 @@ impl<T: Write + Seek> CQDBWriter<T> {
     }
 
     /// Put a string/identifier association to the database
-    pub fn put(&mut self, key: &str, id: u32) -> io::Result<()> {
+    pub fn put<K: AsRef<[u8]>>(&mut self, key: K, id: u32) -> io::Result<()> {
+        let key = key.as_ref();
         let key_size = key.len() as u32 + 1; // includes NUL byte
-        let hash = crate::hash::jhash(key.as_bytes(), key_size, 0);
+        let hash = crate::hash::jhash(key, key_size, 0);
         let table = &mut self.tables[hash as usize % 256];
         // Write out the current data
         self.writer.write_all(&pack_u32(id))?;
