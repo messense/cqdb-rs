@@ -103,7 +103,6 @@ struct Bucket {
 }
 
 /// Writer for a constant quark database
-#[derive(Debug)]
 pub struct CQDBWriter<T: Write + Seek> {
     writer: T,
     /// Operation flag
@@ -125,9 +124,22 @@ impl<'a> fmt::Debug for CQDB<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CQDB")
             .field("header", &self.header)
-            .field("tables", &self.tables)
             .field("bwd", &self.bwd)
             .field("num", &self.num)
+            .finish()
+    }
+}
+
+impl<T: Write + Seek + fmt::Debug> fmt::Debug for CQDBWriter<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CQDBWriter")
+            .field("writer", &self.writer)
+            .field("flag", &self.flag)
+            .field("begin", &self.begin)
+            .field("current", &self.current)
+            .field("bwd", &self.bwd)
+            .field("bwd_num", &self.bwd_num)
+            .field("bwd_size", &self.bwd_size)
             .finish()
     }
 }
