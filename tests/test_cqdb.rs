@@ -25,6 +25,12 @@ fn test_cqdb_reader() {
         assert_eq!(value, format!("{:08}", i));
     }
     assert!(db.to_str(db.num() + 100).is_none());
+
+    // CQDB iterator
+    for item in &db {
+        let (i, value) = item.unwrap();
+        assert_eq!(value, format!("{:08}", i));
+    }
 }
 
 #[test]

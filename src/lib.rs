@@ -299,6 +299,40 @@ impl<'a> CQDB<'a> {
         }
         Ok(None)
     }
+
+    /// An iterator visiting all id, string pairs in order.
+    pub fn iter(&'a self) -> Iter<'a> {
+        Iter { db: self, next: 0 }
+    }
+}
+
+/// CQDB iterator
+pub struct Iter<'a> {
+    db: &'a CQDB<'a>,
+    next: u32,
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = io::Result<(u32, &'a BStr)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let id = self.next;
+        if let Some(s) = self.db.to_str_impl(id).transpose() {
+            self.next += 1;
+            return Some(s.map(|x| (id, x)));
+        }
+        None
+    }
+}
+
+impl<'a> IntoIterator for &'a CQDB<'a> {
+    type Item = io::Result<(u32, &'a BStr)>;
+    type IntoIter = Iter<'a>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
 impl<T: Write + Seek> CQDBWriter<T> {
