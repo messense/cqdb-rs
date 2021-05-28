@@ -323,6 +323,11 @@ impl<'a> Iterator for Iter<'a> {
         }
         None
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let size = self.db.bwd.len();
+        (size, Some(size))
+    }
 }
 
 impl<'a> IntoIterator for &'a CQDB<'a> {
