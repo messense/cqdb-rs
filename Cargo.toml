@@ -14,7 +14,7 @@ name = "cqdb_bench"
 harness = false
 
 [dependencies]
-array-init = "1.0.0"
+array-init = "2.0.0"
 bitflags = "1.2.1"
 bstr = "0.2.14"
 jhash = "0.1.1"
