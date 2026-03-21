@@ -3,7 +3,7 @@ use std::{
     fs,
 };
 
-use cqdb::{CQDBWriter, CQDB};
+use cqdb::{CQDB, CQDBWriter};
 
 #[test]
 fn test_cqdb_reader() {

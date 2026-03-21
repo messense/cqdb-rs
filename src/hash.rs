@@ -1,4 +1,4 @@
-use ::jhash::{jhash_final, jhash_mix, JHASH_INITVAL};
+use ::jhash::{JHASH_INITVAL, jhash_final, jhash_mix};
 
 #[must_use]
 pub fn jhash(mut key: &[u8], mut length: u32, initval: u32) -> u32 {

@@ -1,7 +1,7 @@
 use std::{ffi::CString, fs, io::BufWriter};
 
-use cqdb::{CQDBWriter, CQDB};
-use criterion::{criterion_group, criterion_main, Criterion};
+use cqdb::{CQDB, CQDBWriter};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("reader");

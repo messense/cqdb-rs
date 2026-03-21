@@ -8,7 +8,7 @@ use std::{
     ptr,
 };
 
-use cqdb::{CQDBWriter, Flag, CQDB};
+use cqdb::{CQDB, CQDBWriter, Flag};
 use libc::FILE;
 
 #[macro_use]
