@@ -3,6 +3,7 @@ macro_rules! ffi_fn {
     ($(#[$doc:meta])* fn $name:ident($($arg:ident: $arg_ty:ty),*) -> $ret:ty $body:block) => {
         $(#[$doc])*
         #[unsafe(no_mangle)]
+        #[allow(clippy::not_unsafe_ptr_arg_deref)]
         pub extern "C" fn $name($($arg: $arg_ty),*) -> $ret {
             use std::panic::{self, AssertUnwindSafe};
 

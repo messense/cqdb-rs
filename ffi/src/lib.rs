@@ -130,14 +130,13 @@ ffi_fn! {
             } else {
                 Flag::NONE
             };
-            let writer = match CQDBWriter::with_flag(buf_writer, flag) {
+            match CQDBWriter::with_flag(buf_writer, flag) {
                 Ok(writer) => {
                     let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
                     Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
                 }
                 Err(_) => ptr::null_mut(),
-            };
-            writer
+            }
         }
     }
 }
@@ -212,7 +211,7 @@ ffi_fn! {
         unsafe {
             let dbw = (*dbw).inner as *mut CQDBWriter<BufWriter<File>>;
             let c_str = CStr::from_ptr(s).to_str().unwrap();
-            if let Err(_) = (*dbw).put(c_str, id as u32) {
+            if (*dbw).put(c_str, id as u32).is_err() {
                 return CQDB_ERROR_FILEWRITE;
             }
         }
