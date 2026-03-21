@@ -3,7 +3,7 @@ use std::{
     fs,
 };
 
-use cqdb::{CQDBWriter, CQDB};
+use cqdb::{CQDB, CQDBWriter};
 
 #[test]
 fn test_cqdb_reader() {
@@ -15,13 +15,13 @@ fn test_cqdb_reader() {
     for i in 0..db.num() {
         let s = format!("{:08}", i);
         let j = db.to_id(&s).unwrap();
-        assert_eq!(i as u32, j);
+        assert_eq!(i, j);
     }
     assert!(db.to_id("non-existing-key").is_none());
 
     // Backward lookups: integer identifiers to strings.
     for i in 0..db.num() {
-        let value = db.to_str(i as u32).unwrap();
+        let value = db.to_str(i).unwrap();
         assert_eq!(value, format!("{:08}", i));
     }
     assert!(db.to_str(db.num() + 100).is_none());
@@ -72,12 +72,12 @@ fn test_cqdb_writer() {
     for i in 0..db.num() {
         let s = format!("{:013}", i);
         let j = db.to_id(&s).unwrap();
-        assert_eq!(i as u32, j);
+        assert_eq!(i, j);
     }
 
     // Backward lookups: integer identifiers to strings.
     for i in 0..db.num() {
-        let value = db.to_str(i as u32).unwrap();
+        let value = db.to_str(i).unwrap();
         assert_eq!(value, format!("{:013}", i));
     }
 }
@@ -108,6 +108,30 @@ fn test_cqdb_sys_read_cqdb_writer() {
             assert!(!ptr.is_null());
             let key = CStr::from_ptr(ptr).to_str().unwrap();
             assert_eq!(key, format!("{:08}", id));
+        }
+        cqdb_sys::cqdb_delete(db);
+    }
+}
+
+#[test]
+fn test_cqdb_sys_read_cqdb_writer_12_bytes() {
+    let file = fs::File::create("tests/output/cqdb-writer-12bytes.cqdb").unwrap();
+    let mut writer = CQDBWriter::new(file).unwrap();
+    for id in 0..100 {
+        let key = format!("{:012}", id);
+        writer.put(&key, id).unwrap();
+    }
+    drop(writer);
+
+    let buf = fs::read("tests/output/cqdb-writer-12bytes.cqdb").unwrap();
+    unsafe {
+        let db = cqdb_sys::cqdb_reader(buf.as_ptr() as _, buf.len());
+        assert!(!db.is_null());
+        // Forward lookups, strings to integer indentifiers
+        for id in 0..100 {
+            let key = CString::new(format!("{:012}", id)).unwrap();
+            let j = cqdb_sys::cqdb_to_id(db, key.as_ptr());
+            assert_eq!(id, j);
         }
         cqdb_sys::cqdb_delete(db);
     }

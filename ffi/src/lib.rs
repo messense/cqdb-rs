@@ -8,7 +8,7 @@ use std::{
     ptr,
 };
 
-use cqdb::{CQDBWriter, Flag, CQDB};
+use cqdb::{CQDB, CQDBWriter, Flag};
 use libc::FILE;
 
 #[macro_use]
@@ -57,7 +57,7 @@ ffi_fn! {
     /// Delete the CQDB reader.
     fn cqdb_delete(db: *mut cqdb_t) {
         if !db.is_null() {
-            unsafe { Box::from_raw(db as *mut CQDB) };
+            unsafe { drop(Box::from_raw(db as *mut CQDB)) };
         }
     }
 }
@@ -130,14 +130,13 @@ ffi_fn! {
             } else {
                 Flag::NONE
             };
-            let writer = match CQDBWriter::with_flag(buf_writer, flag) {
+            match CQDBWriter::with_flag(buf_writer, flag) {
                 Ok(writer) => {
                     let inner = Box::into_raw(Box::new(writer)) as *mut tag_cqdb_writer_inner;
                     Box::into_raw(Box::new(cqdb_writer_t { file: fp, inner }))
                 }
                 Err(_) => ptr::null_mut(),
-            };
-            writer
+            }
         }
     }
 }
@@ -148,10 +147,12 @@ unsafe fn new_file_from_libc(fp: *mut FILE) -> File {
 
     // Safely get the file descriptor associated with FILE by fflush()ing its contents first
     // Reference: https://stackoverflow.com/a/31688641
-    libc::fflush(fp);
-    // `from_raw_fd` takes the ownship of the file descriptor, use `libc::dup` to get a new fd
-    let fd = libc::dup(libc::fileno(fp));
-    File::from_raw_fd(fd)
+    unsafe {
+        libc::fflush(fp);
+        // `from_raw_fd` takes the ownship of the file descriptor, use `libc::dup` to get a new fd
+        let fd = libc::dup(libc::fileno(fp));
+        File::from_raw_fd(fd)
+    }
 }
 
 #[cfg(windows)]
@@ -160,11 +161,12 @@ unsafe fn new_file_from_libc(fp: *mut FILE) -> File {
 
     // Safely get the file descriptor associated with FILE by fflush()ing its contents first
     // Reference: https://stackoverflow.com/a/31688641
-    libc::fflush(fp);
-    let fd = libc::dup(libc::fileno(fp));
-    let handle = libc::get_osfhandle(fd) as RawHandle;
-    // `from_raw_handle` takes the ownship of the file descriptor, use `libc::dup` to get a new fd
-    File::from_raw_handle(handle)
+    unsafe {
+        libc::fflush(fp);
+        let fd = libc::dup(libc::fileno(fp));
+        let handle = libc::get_osfhandle(fd) as RawHandle;
+        File::from_raw_handle(handle)
+    }
 }
 
 ffi_fn! {
@@ -180,12 +182,12 @@ ffi_fn! {
             unsafe {
                 let inner = (*dbw).inner as *mut CQDBWriter<BufWriter<File>>;
                 // Drop CQDBWriter
-                Box::from_raw(inner);
+                drop(Box::from_raw(inner));
                 // Re-sync file position so that ftell works correctly
                 // Reference: https://stackoverflow.com/a/31688641
                 let offset = libc::lseek(libc::fileno((*dbw).file), 0, libc::SEEK_CUR);
                 libc::fseek((*dbw).file, offset, libc::SEEK_SET);
-                Box::from_raw(dbw);
+                drop(Box::from_raw(dbw));
             }
         }
         CQDB_SUCCESS
@@ -209,7 +211,7 @@ ffi_fn! {
         unsafe {
             let dbw = (*dbw).inner as *mut CQDBWriter<BufWriter<File>>;
             let c_str = CStr::from_ptr(s).to_str().unwrap();
-            if let Err(_) = (*dbw).put(c_str, id as u32) {
+            if (*dbw).put(c_str, id as u32).is_err() {
                 return CQDB_ERROR_FILEWRITE;
             }
         }

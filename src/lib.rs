@@ -17,6 +17,7 @@ const NUM_TABLES: usize = 256;
 
 bitflags! {
     /// CQDB writer flag
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct Flag: u32 {
         /// No flag, default
         const NONE = 0;
@@ -148,15 +149,12 @@ impl<'a> CQDB<'a> {
     pub fn new(buf: &'a [u8]) -> io::Result<Self> {
         if buf.len() < mem::size_of::<Header>() + mem::size_of::<TableRef>() * NUM_TABLES {
             // The minimum size of a valid CQDB
-            return Err(io::Error::new(io::ErrorKind::Other, "invalid file format"));
+            return Err(io::Error::other("invalid file format"));
         }
         let magic = &buf[0..4];
         // Check the file chunkid
         if magic != CHUNK_ID {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "invalid file format, magic mismatch",
-            ));
+            return Err(io::Error::other("invalid file format, magic mismatch"));
         }
         let mut index = 4; // skip magic
         let chunk_size = unpack_u32(&buf[index..])?;
@@ -167,10 +165,7 @@ impl<'a> CQDB<'a> {
         index += 4;
         // Check the consistency of byte order
         if byte_order != BYTEORDER_CHECK {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "invalid file format, byte order mismatch",
-            ));
+            return Err(io::Error::other("invalid file format, byte order mismatch"));
         }
         let bwd_size = unpack_u32(&buf[index..])?;
         index += 4;
@@ -185,16 +180,16 @@ impl<'a> CQDB<'a> {
             bwd_offset,
         };
         let mut num_db = 0;
-        let mut tables: [Table; NUM_TABLES] = array_init::array_init(|_| Table::default());
-        for i in 0..NUM_TABLES {
+        let mut tables: [Table; NUM_TABLES] = std::array::from_fn(|_| Table::default());
+        for table in &mut tables {
             let table_offset = unpack_u32(&buf[index..])?;
             index += 4;
             let table_num = unpack_u32(&buf[index..])?;
             index += 4;
             if table_offset > 0 {
                 let bucket = Self::read_bucket(buf, table_offset as usize, table_num as usize)?;
-                tables[i].bucket = bucket;
-                tables[i].num = table_num;
+                table.bucket = bucket;
+                table.num = table_num;
             }
             // The number of records is the half of the table size
             num_db += table_num / 2;
@@ -288,7 +283,7 @@ impl<'a> CQDB<'a> {
     #[inline]
     fn to_str_impl(&'a self, id: u32) -> io::Result<Option<&'a BStr>> {
         // Check if the current database supports the backward lookup
-        if !self.bwd.is_empty() && (id as u32) < self.header.bwd_size {
+        if !self.bwd.is_empty() && id < self.header.bwd_size {
             let id = id as usize;
             debug_assert!(id < self.bwd.len());
             let offset = self.bwd[id];
@@ -354,7 +349,7 @@ impl<T: Write + Seek> CQDBWriter<T> {
 
     /// Create a new CQDB writer with flag
     pub fn with_flag(mut writer: T, flag: Flag) -> io::Result<Self> {
-        let begin = writer.seek(SeekFrom::Current(0))? as u32;
+        let begin = writer.stream_position()? as u32;
         let current = (mem::size_of::<Header>() + mem::size_of::<TableRef>() * NUM_TABLES) as u32;
         // Move the file pointer to the offset to the first key/data pair
         writer.seek(SeekFrom::Start((begin + current) as u64))?;
@@ -363,7 +358,7 @@ impl<T: Write + Seek> CQDBWriter<T> {
             flag,
             begin,
             current,
-            tables: array_init::array_init(|_| Table::default()),
+            tables: std::array::from_fn(|_| Table::default()),
             bwd: Vec::new(),
             bwd_num: 0,
             bwd_size: 0,
@@ -378,7 +373,7 @@ impl<T: Write + Seek> CQDBWriter<T> {
         let table = &mut self.tables[hash as usize % 256];
         // Write out the current data
         self.writer.write_all(&pack_u32(id))?;
-        self.writer.write_all(&pack_u32(key_size as u32))?;
+        self.writer.write_all(&pack_u32(key_size))?;
         self.writer.write_all(key.as_bytes())?;
         self.writer.write_all(b"\0")?;
         // Expand the bucket if necessary
@@ -388,7 +383,7 @@ impl<T: Write + Seek> CQDBWriter<T> {
         }
         // Set the hash value and current offset position
         table.bucket[table.num as usize].hash = hash;
-        table.bucket[table.num as usize].offset = self.current as u32;
+        table.bucket[table.num as usize].offset = self.current;
         table.num += 1;
         // Store the backlink if specified
         if !self.flag.contains(Flag::ONEWAY) {
@@ -404,7 +399,7 @@ impl<T: Write + Seek> CQDBWriter<T> {
             if self.bwd_num <= id {
                 self.bwd_num = id + 1;
             }
-            self.bwd[id as usize] = self.current as u32;
+            self.bwd[id as usize] = self.current;
         }
         // Increment the current position
         self.current += 4 + 4 + key_size;
@@ -415,7 +410,7 @@ impl<T: Write + Seek> CQDBWriter<T> {
     fn close(&mut self) -> io::Result<()> {
         let mut header = Header {
             chunk_id: *CHUNK_ID,
-            flag: self.flag.bits,
+            flag: self.flag.bits(),
             byteorder: BYTEORDER_CHECK,
             bwd_offset: 0,
             bwd_size: self.bwd_num,
@@ -446,15 +441,15 @@ impl<T: Write + Seek> CQDBWriter<T> {
                 dst[k as usize].offset = src.offset;
             }
             // Write the bucket
-            for k in 0..n as usize {
-                self.writer.write_all(&pack_u32(dst[k].hash))?;
-                self.writer.write_all(&pack_u32(dst[k].offset))?;
+            for bucket in dst.iter().take(n as usize) {
+                self.writer.write_all(&pack_u32(bucket.hash))?;
+                self.writer.write_all(&pack_u32(bucket.offset))?;
             }
         }
         // Write the backlink array if specified
         if !self.flag.contains(Flag::ONEWAY) && self.bwd_size > 0 {
             // Store the offset to the head of this array
-            let current_offset = self.writer.seek(SeekFrom::Current(0))? as u32;
+            let current_offset = self.writer.stream_position()? as u32;
             header.bwd_offset = current_offset - self.begin;
             // Store the contents of the backlink array
             for i in 0..self.bwd_num as usize {
@@ -462,7 +457,7 @@ impl<T: Write + Seek> CQDBWriter<T> {
             }
         }
         // Store the current position
-        let offset = self.writer.seek(SeekFrom::Current(0))? as u32;
+        let offset = self.writer.stream_position()? as u32;
         header.size = offset - self.begin;
         // Rewind the current position to the beginning
         self.writer.seek(SeekFrom::Start(self.begin as u64))?;
@@ -478,11 +473,7 @@ impl<T: Write + Seek> CQDBWriter<T> {
         for i in 0..NUM_TABLES {
             let table_num = self.tables[i].num;
             // Offset to the hash table (or zero for non-existent tables)
-            let table_offset = if table_num > 0 {
-                self.current as u32
-            } else {
-                0
-            };
+            let table_offset = if table_num > 0 { self.current } else { 0 };
             self.writer.write_all(&pack_u32(table_offset))?;
             // Bucket size is double the number of elements
             self.writer.write_all(&pack_u32(table_num * 2))?;

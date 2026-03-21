@@ -1,4 +1,4 @@
-use ::jhash::{jhash_final, jhash_mix, JHASH_INITVAL};
+use ::jhash::{JHASH_INITVAL, jhash_final, jhash_mix};
 
 #[must_use]
 pub fn jhash(mut key: &[u8], mut length: u32, initval: u32) -> u32 {
@@ -23,17 +23,38 @@ pub fn jhash(mut key: &[u8], mut length: u32, initval: u32) -> u32 {
     c = c.wrapping_add((*key.get(11).unwrap_or(&0) as u32) << 24);
     c = c.wrapping_add((*key.get(10).unwrap_or(&0) as u32) << 16);
     c = c.wrapping_add((*key.get(9).unwrap_or(&0) as u32) << 8);
-    c = c.wrapping_add((*key.get(8).unwrap_or(&0) as u32) << 0);
+    c = c.wrapping_add(*key.get(8).unwrap_or(&0) as u32);
 
     b = b.wrapping_add((*key.get(7).unwrap_or(&0) as u32) << 24);
     b = b.wrapping_add((*key.get(6).unwrap_or(&0) as u32) << 16);
     b = b.wrapping_add((*key.get(5).unwrap_or(&0) as u32) << 8);
-    b = b.wrapping_add((*key.get(4).unwrap_or(&0) as u32) << 0);
+    b = b.wrapping_add(*key.get(4).unwrap_or(&0) as u32);
 
     a = a.wrapping_add((*key.get(3).unwrap_or(&0) as u32) << 24);
     a = a.wrapping_add((*key.get(2).unwrap_or(&0) as u32) << 16);
     a = a.wrapping_add((*key.get(1).unwrap_or(&0) as u32) << 8);
-    a = a.wrapping_add((*key.get(0).unwrap_or(&0) as u32) << 0);
+    a = a.wrapping_add(*key.first().unwrap_or(&0) as u32);
 
     jhash_final(a, b, c)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::jhash;
+
+    #[test]
+    fn test_jhash_multiple_of_12() {
+        let s = b"0123456789ab";
+        assert_eq!(s.len(), 12);
+        let h = jhash(s, s.len() as u32 + 1, 0);
+        assert_eq!(h, 2677502765);
+    }
+
+    #[test]
+    fn test_jhash_multiple_of_12_again() {
+        let s = b"0123456789ab0123456789ab";
+        assert_eq!(s.len(), 24);
+        let h = jhash(s, s.len() as u32 + 1, 0);
+        assert_eq!(h, 1248740946);
+    }
 }
