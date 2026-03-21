@@ -2,8 +2,8 @@
 macro_rules! ffi_fn {
     ($(#[$doc:meta])* fn $name:ident($($arg:ident: $arg_ty:ty),*) -> $ret:ty $body:block) => {
         $(#[$doc])*
-        #[no_mangle]
-        pub extern fn $name($($arg: $arg_ty),*) -> $ret {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $name($($arg: $arg_ty),*) -> $ret {
             use std::panic::{self, AssertUnwindSafe};
 
             match panic::catch_unwind(AssertUnwindSafe(move || $body)) {

@@ -57,7 +57,7 @@ ffi_fn! {
     /// Delete the CQDB reader.
     fn cqdb_delete(db: *mut cqdb_t) {
         if !db.is_null() {
-            unsafe { Box::from_raw(db as *mut CQDB) };
+            unsafe { drop(Box::from_raw(db as *mut CQDB)) };
         }
     }
 }
@@ -148,10 +148,12 @@ unsafe fn new_file_from_libc(fp: *mut FILE) -> File {
 
     // Safely get the file descriptor associated with FILE by fflush()ing its contents first
     // Reference: https://stackoverflow.com/a/31688641
-    libc::fflush(fp);
-    // `from_raw_fd` takes the ownship of the file descriptor, use `libc::dup` to get a new fd
-    let fd = libc::dup(libc::fileno(fp));
-    File::from_raw_fd(fd)
+    unsafe {
+        libc::fflush(fp);
+        // `from_raw_fd` takes the ownship of the file descriptor, use `libc::dup` to get a new fd
+        let fd = libc::dup(libc::fileno(fp));
+        File::from_raw_fd(fd)
+    }
 }
 
 #[cfg(windows)]
@@ -160,11 +162,12 @@ unsafe fn new_file_from_libc(fp: *mut FILE) -> File {
 
     // Safely get the file descriptor associated with FILE by fflush()ing its contents first
     // Reference: https://stackoverflow.com/a/31688641
-    libc::fflush(fp);
-    let fd = libc::dup(libc::fileno(fp));
-    let handle = libc::get_osfhandle(fd) as RawHandle;
-    // `from_raw_handle` takes the ownship of the file descriptor, use `libc::dup` to get a new fd
-    File::from_raw_handle(handle)
+    unsafe {
+        libc::fflush(fp);
+        let fd = libc::dup(libc::fileno(fp));
+        let handle = libc::get_osfhandle(fd) as RawHandle;
+        File::from_raw_handle(handle)
+    }
 }
 
 ffi_fn! {
@@ -180,12 +183,12 @@ ffi_fn! {
             unsafe {
                 let inner = (*dbw).inner as *mut CQDBWriter<BufWriter<File>>;
                 // Drop CQDBWriter
-                Box::from_raw(inner);
+                drop(Box::from_raw(inner));
                 // Re-sync file position so that ftell works correctly
                 // Reference: https://stackoverflow.com/a/31688641
                 let offset = libc::lseek(libc::fileno((*dbw).file), 0, libc::SEEK_CUR);
                 libc::fseek((*dbw).file, offset, libc::SEEK_SET);
-                Box::from_raw(dbw);
+                drop(Box::from_raw(dbw));
             }
         }
         CQDB_SUCCESS

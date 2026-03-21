@@ -50,7 +50,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let db = CQDB::new(&buf).unwrap();
         b.iter(|| {
             for i in 0..db.num() {
-                let _value = db.to_str(i as u32).unwrap();
+                let _value = db.to_str(i).unwrap();
             }
         })
     });

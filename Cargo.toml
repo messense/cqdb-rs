@@ -1,9 +1,9 @@
 [package]
 name = "cqdb"
-version = "0.5.8"
+version = "0.6.0"
 authors = ["messense <messense@icloud.com>"]
 description = "Rust implementation of Constant Quark Database (CQDB)"
-edition = "2018"
+edition = "2024"
 license = "MIT"
 repository = "https://github.com/messense/cqdb-rs"
 keywords = ["cdb", "cqdb", "crfsuite"]
@@ -14,15 +14,14 @@ name = "cqdb_bench"
 harness = false
 
 [dependencies]
-array-init = "2.0.0"
-bitflags = "1.2.1"
-bstr = { version = "1.0.0", default-features = false, features = ["std"] }
+bitflags = "2.6.0"
+bstr = { version = "1.11.1", default-features = false, features = ["std"] }
 jhash = "0.1.1"
 
 [dev-dependencies]
-cqdb-sys = "0.1.0"
-criterion = "0.4.0"
-libc = "0.2.82"
+cqdb-sys = "0.1.2"
+criterion = "0.5.1"
+libc = "0.2.169"
 
 [workspace]
 members = [
