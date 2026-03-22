@@ -240,15 +240,17 @@ impl<'a> CQDB<'a> {
             let base = table.offset;
             let mut k = (hash >> 8) % n;
             loop {
-                let bucket_base = base + (k as usize) * 8;
-                let bucket_offset = read_u32_le(self.buffer, bucket_base + 4);
+                // Single bounds check for both hash + offset (8 bytes)
+                let bk = &self.buffer[base + (k as usize) * 8..][..8];
+                let bucket_offset = u32::from_le_bytes([bk[4], bk[5], bk[6], bk[7]]);
                 if bucket_offset > 0 {
-                    let bucket_hash = read_u32_le(self.buffer, bucket_base);
+                    let bucket_hash = u32::from_le_bytes([bk[0], bk[1], bk[2], bk[3]]);
                     if bucket_hash == hash {
-                        let rec = bucket_offset as usize;
-                        let value = read_u32_le(self.buffer, rec);
-                        let ksize = read_u32_le(self.buffer, rec + 4) as usize - 1; // ksize includes NUL
-                        let key_start = rec + 8;
+                        // Single bounds check for record header (8 bytes)
+                        let rec = &self.buffer[bucket_offset as usize..][..8];
+                        let value = u32::from_le_bytes([rec[0], rec[1], rec[2], rec[3]]);
+                        let ksize = u32::from_le_bytes([rec[4], rec[5], rec[6], rec[7]]) as usize - 1;
+                        let key_start = bucket_offset as usize + 8;
                         if s.as_bytes() == &self.buffer[key_start..key_start + ksize] {
                             return Some(value);
                         }
@@ -352,11 +354,22 @@ impl<T: Write + Seek> CQDBWriter<T> {
         let key_size = key.len() as u32 + 1; // includes NUL byte
         let hash = crate::hash::jhash(key, key_size, 0);
         let table = &mut self.tables[hash as usize % 256];
-        // Write out the current data
-        self.writer.write_all(&pack_u32(id))?;
-        self.writer.write_all(&pack_u32(key_size))?;
-        self.writer.write_all(key.as_bytes())?;
-        self.writer.write_all(b"\0")?;
+        // Batch record write: [id(4) | key_size(4) | key | NUL]
+        let record_len = 8 + key.len() + 1;
+        if record_len <= 264 {
+            let mut buf = [0u8; 264]; // 8 header + max 255 key + NUL
+            buf[0..4].copy_from_slice(&pack_u32(id));
+            buf[4..8].copy_from_slice(&pack_u32(key_size));
+            buf[8..8 + key.len()].copy_from_slice(key);
+            // buf[8 + key.len()] is already 0 (NUL)
+            self.writer.write_all(&buf[..record_len])?;
+        } else {
+            // Fallback for very large keys
+            self.writer.write_all(&pack_u32(id))?;
+            self.writer.write_all(&pack_u32(key_size))?;
+            self.writer.write_all(key)?;
+            self.writer.write_all(b"\0")?;
+        }
         // Expand the bucket if necessary
         if table.size <= table.num as usize {
             table.size = (table.size + 1) * 2;
@@ -399,6 +412,10 @@ impl<T: Write + Seek> CQDBWriter<T> {
         };
         // Store the hash tables. At this moment, the file pointer refers to
         // the offset succeeding the last key/data pair.
+        // Reuse dst Vec across tables to avoid per-table heap allocation.
+        let mut dst: Vec<Bucket> = Vec::new();
+        #[cfg(not(target_endian = "little"))]
+        let mut write_buf: Vec<u8> = Vec::new();
         for i in 0..NUM_TABLES {
             let table = &self.tables[i];
             // Do not write empty hash tables
@@ -408,7 +425,10 @@ impl<T: Write + Seek> CQDBWriter<T> {
             // Actual bucket will have the double size; half elements
             // in the bucket are kept empty.
             let n = table.num * 2;
-            let mut dst = vec![Bucket::default(); n as usize];
+            let n_usize = n as usize;
+            // Reuse dst: only grows, never deallocates between tables
+            dst.clear();
+            dst.resize(n_usize, Bucket::default());
             // Put hash elements to the bucket with the open-address method
             for j in 0..table.num as usize {
                 let src = &table.bucket[j];
@@ -421,10 +441,24 @@ impl<T: Write + Seek> CQDBWriter<T> {
                 dst[k as usize].hash = src.hash;
                 dst[k as usize].offset = src.offset;
             }
-            // Write the bucket
-            for bucket in dst.iter().take(n as usize) {
-                self.writer.write_all(&pack_u32(bucket.hash))?;
-                self.writer.write_all(&pack_u32(bucket.offset))?;
+            // Write the entire bucket array for this table in one call.
+            // On LE platforms, Bucket repr(C) {u32, u32} matches the on-disk format.
+            #[cfg(target_endian = "little")]
+            {
+                let bytes = unsafe {
+                    std::slice::from_raw_parts(dst.as_ptr() as *const u8, n_usize * 8)
+                };
+                self.writer.write_all(bytes)?;
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                write_buf.clear();
+                write_buf.reserve(n_usize * 8);
+                for bucket in &dst[..n_usize] {
+                    write_buf.extend_from_slice(&pack_u32(bucket.hash));
+                    write_buf.extend_from_slice(&pack_u32(bucket.offset));
+                }
+                self.writer.write_all(&write_buf)?;
             }
         }
         // Write the backlink array if specified
@@ -432,9 +466,25 @@ impl<T: Write + Seek> CQDBWriter<T> {
             // Store the offset to the head of this array
             let current_offset = self.writer.stream_position()? as u32;
             header.bwd_offset = current_offset - self.begin;
-            // Store the contents of the backlink array
-            for i in 0..self.bwd_num as usize {
-                self.writer.write_all(&pack_u32(self.bwd[i]))?;
+            // Write all backward links in one call.
+            #[cfg(target_endian = "little")]
+            {
+                let bytes = unsafe {
+                    std::slice::from_raw_parts(
+                        self.bwd.as_ptr() as *const u8,
+                        self.bwd_num as usize * 4,
+                    )
+                };
+                self.writer.write_all(bytes)?;
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                write_buf.clear();
+                write_buf.reserve(self.bwd_num as usize * 4);
+                for i in 0..self.bwd_num as usize {
+                    write_buf.extend_from_slice(&pack_u32(self.bwd[i]));
+                }
+                self.writer.write_all(&write_buf)?;
             }
         }
         // Store the current position
@@ -442,25 +492,28 @@ impl<T: Write + Seek> CQDBWriter<T> {
         header.size = offset - self.begin;
         // Rewind the current position to the beginning
         self.writer.seek(SeekFrom::Start(self.begin as u64))?;
-        // Write the file header
-        self.writer.write_all(&header.chunk_id)?;
-        self.writer.write_all(&pack_u32(header.size))?;
-        self.writer.write_all(&pack_u32(header.flag))?;
-        self.writer.write_all(&pack_u32(header.byteorder))?;
-        self.writer.write_all(&pack_u32(header.bwd_size))?;
-        self.writer.write_all(&pack_u32(header.bwd_offset))?;
+        // Write header + table references in a single batch (2072 bytes on stack)
+        let mut hdr_buf = [0u8; 24 + NUM_TABLES * 8];
+        hdr_buf[0..4].copy_from_slice(&header.chunk_id);
+        hdr_buf[4..8].copy_from_slice(&pack_u32(header.size));
+        hdr_buf[8..12].copy_from_slice(&pack_u32(header.flag));
+        hdr_buf[12..16].copy_from_slice(&pack_u32(header.byteorder));
+        hdr_buf[16..20].copy_from_slice(&pack_u32(header.bwd_size));
+        hdr_buf[20..24].copy_from_slice(&pack_u32(header.bwd_offset));
         // Write references to hash tables. At this moment, self.current points
         // to the offset succeeding the last key/data pair.
         for i in 0..NUM_TABLES {
             let table_num = self.tables[i].num;
             // Offset to the hash table (or zero for non-existent tables)
             let table_offset = if table_num > 0 { self.current } else { 0 };
-            self.writer.write_all(&pack_u32(table_offset))?;
+            let off = 24 + i * 8;
+            hdr_buf[off..off + 4].copy_from_slice(&pack_u32(table_offset));
             // Bucket size is double the number of elements
-            self.writer.write_all(&pack_u32(table_num * 2))?;
+            hdr_buf[off + 4..off + 8].copy_from_slice(&pack_u32(table_num * 2));
             // Advance the offset counter
             self.current += table_num * 2 * std::mem::size_of::<Bucket>() as u32;
         }
+        self.writer.write_all(&hdr_buf)?;
         // Seek to the last position
         self.writer.seek(SeekFrom::Start(offset as u64))?;
         Ok(())
