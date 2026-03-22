@@ -191,13 +191,17 @@ impl<'a> CQDB<'a> {
             let table_num = read_u32_le(buf, index);
             index += 4;
             if table_offset > 0 {
-                // Validate that bucket data fits within the buffer
-                let end = table_offset + (table_num as usize) * 8;
-                if end > buf.len() {
-                    return Err(io::Error::other("invalid table data: out of bounds"));
+                // Validate that bucket data fits within the buffer (checked arithmetic for overflow)
+                let end = (table_num as usize)
+                    .checked_mul(8)
+                    .and_then(|bytes| table_offset.checked_add(bytes));
+                match end {
+                    Some(end) if end <= buf.len() => {
+                        table.offset = table_offset;
+                        table.num = table_num;
+                    }
+                    _ => return Err(io::Error::other("invalid table data: out of bounds")),
                 }
-                table.offset = table_offset;
-                table.num = table_num;
             }
             // The number of records is the half of the table size
             num_db += table_num / 2;
@@ -206,13 +210,17 @@ impl<'a> CQDB<'a> {
         // Validate backward link array bounds
         let bwd_offset = if bwd_offset_raw > 0 {
             let off = bwd_offset_raw as usize;
-            let end = off + (bwd_size as usize) * 4;
-            if end > buf.len() {
-                return Err(io::Error::other(
-                    "invalid backward link data: out of bounds",
-                ));
+            let end = (bwd_size as usize)
+                .checked_mul(4)
+                .and_then(|bytes| off.checked_add(bytes));
+            match end {
+                Some(end) if end <= buf.len() => off,
+                _ => {
+                    return Err(io::Error::other(
+                        "invalid backward link data: out of bounds",
+                    ));
+                }
             }
-            off
         } else {
             0
         };
@@ -248,13 +256,14 @@ impl<'a> CQDB<'a> {
                 if bucket_offset > 0 {
                     let bucket_hash = u32::from_le_bytes([bk[0], bk[1], bk[2], bk[3]]);
                     if bucket_hash == hash {
-                        // Single bounds check for record header (8 bytes)
-                        let rec = &self.buffer[bucket_offset as usize..][..8];
+                        // Record reads use offsets from file content — use checked access
+                        let rec_start = bucket_offset as usize;
+                        let rec = self.buffer.get(rec_start..rec_start + 8)?;
                         let value = u32::from_le_bytes([rec[0], rec[1], rec[2], rec[3]]);
-                        let ksize =
-                            u32::from_le_bytes([rec[4], rec[5], rec[6], rec[7]]) as usize - 1;
-                        let key_start = bucket_offset as usize + 8;
-                        if s.as_bytes() == &self.buffer[key_start..key_start + ksize] {
+                        let ksize = (u32::from_le_bytes([rec[4], rec[5], rec[6], rec[7]]) as usize)
+                            .checked_sub(1)?; // ksize includes NUL
+                        let key_end = rec_start.checked_add(8 + ksize)?;
+                        if s.as_bytes() == self.buffer.get(rec_start + 8..key_end)? {
                             return Some(value);
                         }
                     }
@@ -272,12 +281,17 @@ impl<'a> CQDB<'a> {
     pub fn to_str(&'a self, id: u32) -> Option<&'a BStr> {
         // Check if the current database supports the backward lookup
         if self.bwd_offset > 0 && id < self.header.bwd_size {
+            // bwd array read is safe: bounds validated in new()
             let offset = read_u32_le(self.buffer, self.bwd_offset + (id as usize) * 4);
             if offset > 0 {
+                // Record reads use offsets from file content — use checked access
                 let index = offset as usize + 4; // Skip id field
-                let value_size = read_u32_le(self.buffer, index) as usize - 1; // includes NUL
+                let rec = self.buffer.get(index..index + 4)?;
+                let value_size = (u32::from_le_bytes([rec[0], rec[1], rec[2], rec[3]]) as usize)
+                    .checked_sub(1)?; // includes NUL
                 let start = index + 4;
-                return Some(self.buffer[start..start + value_size].as_bstr());
+                let end = start.checked_add(value_size)?;
+                return Some(self.buffer.get(start..end)?.as_bstr());
             }
         }
         None
@@ -313,7 +327,7 @@ impl<'a> Iterator for Iter<'a> {
         } else {
             0
         };
-        (remaining, Some(remaining))
+        (0, Some(remaining))
     }
 }
 
