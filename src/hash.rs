@@ -150,4 +150,48 @@ mod tests {
         let h = jhash(s, s.len() as u32 + 1, 0);
         assert_eq!(h, 1248740946);
     }
+
+    #[test]
+    fn test_jhash_empty_key() {
+        let h = jhash(b"", 1, 0);
+        assert_ne!(h, 0);
+    }
+
+    #[test]
+    fn test_jhash_zero_length() {
+        let h = jhash(b"", 0, 0);
+        assert_ne!(h, 0);
+    }
+
+    #[test]
+    fn test_jhash_various_tail_lengths() {
+        for len in 1..=11 {
+            let key: Vec<u8> = (0..len).map(|i| b'a' + (i as u8 % 26)).collect();
+            let h = jhash(&key, key.len() as u32 + 1, 0);
+            let _ = h;
+        }
+    }
+
+    #[test]
+    fn test_jhash_13_bytes() {
+        let key = b"0123456789abc";
+        let h = jhash(key, key.len() as u32 + 1, 0);
+        assert_ne!(h, 0);
+    }
+
+    #[test]
+    fn test_jhash_deterministic() {
+        let key = b"test_key";
+        let h1 = jhash(key, key.len() as u32 + 1, 0);
+        let h2 = jhash(key, key.len() as u32 + 1, 0);
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_jhash_initval_matters() {
+        let key = b"test_key";
+        let h1 = jhash(key, key.len() as u32 + 1, 0);
+        let h2 = jhash(key, key.len() as u32 + 1, 42);
+        assert_ne!(h1, h2);
+    }
 }
