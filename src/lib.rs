@@ -208,7 +208,9 @@ impl<'a> CQDB<'a> {
             let off = bwd_offset_raw as usize;
             let end = off + (bwd_size as usize) * 4;
             if end > buf.len() {
-                return Err(io::Error::other("invalid backward link data: out of bounds"));
+                return Err(io::Error::other(
+                    "invalid backward link data: out of bounds",
+                ));
             }
             off
         } else {
@@ -249,7 +251,8 @@ impl<'a> CQDB<'a> {
                         // Single bounds check for record header (8 bytes)
                         let rec = &self.buffer[bucket_offset as usize..][..8];
                         let value = u32::from_le_bytes([rec[0], rec[1], rec[2], rec[3]]);
-                        let ksize = u32::from_le_bytes([rec[4], rec[5], rec[6], rec[7]]) as usize - 1;
+                        let ksize =
+                            u32::from_le_bytes([rec[4], rec[5], rec[6], rec[7]]) as usize - 1;
                         let key_start = bucket_offset as usize + 8;
                         if s.as_bytes() == &self.buffer[key_start..key_start + ksize] {
                             return Some(value);
@@ -445,9 +448,8 @@ impl<T: Write + Seek> CQDBWriter<T> {
             // On LE platforms, Bucket repr(C) {u32, u32} matches the on-disk format.
             #[cfg(target_endian = "little")]
             {
-                let bytes = unsafe {
-                    std::slice::from_raw_parts(dst.as_ptr() as *const u8, n_usize * 8)
-                };
+                let bytes =
+                    unsafe { std::slice::from_raw_parts(dst.as_ptr() as *const u8, n_usize * 8) };
                 self.writer.write_all(bytes)?;
             }
             #[cfg(not(target_endian = "little"))]
