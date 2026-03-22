@@ -26,20 +26,27 @@ bitflags! {
     }
 }
 
-#[inline]
-fn unpack_u32(buf: &[u8]) -> io::Result<u32> {
-    if buf.len() < 4 {
-        return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "not enough data for unpacking u32",
-        ));
-    }
-    Ok(u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]))
+/// Read a little-endian u32 directly from a buffer at the given offset.
+/// Uses a single slice bounds check instead of 4 individual byte accesses.
+/// Panics on out-of-bounds (callers must validate buffer structure upfront).
+#[inline(always)]
+fn read_u32_le(buf: &[u8], offset: usize) -> u32 {
+    let b = &buf[offset..offset + 4];
+    u32::from_le_bytes([b[0], b[1], b[2], b[3]])
 }
 
 #[inline(always)]
 fn pack_u32(value: u32) -> [u8; 4] {
     value.to_le_bytes()
+}
+
+/// Zero-copy hash table reference into the buffer
+#[derive(Debug, Clone, Copy, Default)]
+struct ReadTable {
+    /// Offset into buffer where the bucket array starts
+    offset: usize,
+    /// Number of elements in the hash table
+    num: u32,
 }
 
 /// Constant quark database (CQDB)
@@ -49,10 +56,10 @@ pub struct CQDB<'a> {
     buffer: &'a [u8],
     /// Chunk header
     header: Header,
-    /// Hash tables (string -> id)
-    tables: [Table; NUM_TABLES],
-    /// Array for backward lookup (id -> string)
-    bwd: Vec<u32>,
+    /// Hash tables (string -> id), zero-copy references into buffer
+    tables: [ReadTable; NUM_TABLES],
+    /// Offset to the backward link array in the buffer (0 if none)
+    bwd_offset: usize,
     /// Number of key/data pairs
     num: u32,
 }
@@ -75,7 +82,7 @@ struct Header {
     bwd_offset: u32,
 }
 
-/// A hash table
+/// A hash table (used by writer)
 #[derive(Debug, Clone, Default)]
 struct Table {
     size: usize,
@@ -125,7 +132,7 @@ impl<'a> fmt::Debug for CQDB<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CQDB")
             .field("header", &self.header)
-            .field("bwd", &self.bwd)
+            .field("bwd_offset", &self.bwd_offset)
             .field("num", &self.num)
             .finish()
     }
@@ -147,90 +154,74 @@ impl<T: Write + Seek + fmt::Debug> fmt::Debug for CQDBWriter<T> {
 
 impl<'a> CQDB<'a> {
     pub fn new(buf: &'a [u8]) -> io::Result<Self> {
-        if buf.len() < mem::size_of::<Header>() + mem::size_of::<TableRef>() * NUM_TABLES {
+        let min_size = mem::size_of::<Header>() + mem::size_of::<TableRef>() * NUM_TABLES;
+        if buf.len() < min_size {
             // The minimum size of a valid CQDB
             return Err(io::Error::other("invalid file format"));
         }
-        let magic = &buf[0..4];
         // Check the file chunkid
-        if magic != CHUNK_ID {
+        if &buf[0..4] != CHUNK_ID {
             return Err(io::Error::other("invalid file format, magic mismatch"));
         }
-        let mut index = 4; // skip magic
-        let chunk_size = unpack_u32(&buf[index..])?;
-        index += 4;
-        let flag = unpack_u32(&buf[index..])?;
-        index += 4;
-        let byte_order = unpack_u32(&buf[index..])?;
-        index += 4;
+        let chunk_size = read_u32_le(buf, 4);
+        let flag = read_u32_le(buf, 8);
+        let byte_order = read_u32_le(buf, 12);
         // Check the consistency of byte order
         if byte_order != BYTEORDER_CHECK {
             return Err(io::Error::other("invalid file format, byte order mismatch"));
         }
-        let bwd_size = unpack_u32(&buf[index..])?;
-        index += 4;
-        let bwd_offset = unpack_u32(&buf[index..])?;
-        index += 4;
+        let bwd_size = read_u32_le(buf, 16);
+        let bwd_offset_raw = read_u32_le(buf, 20);
         let header = Header {
             chunk_id: *CHUNK_ID,
             size: chunk_size,
             flag,
             byteorder: byte_order,
             bwd_size,
-            bwd_offset,
+            bwd_offset: bwd_offset_raw,
         };
-        let mut num_db = 0;
-        let mut tables: [Table; NUM_TABLES] = std::array::from_fn(|_| Table::default());
+
+        // Parse table references (zero-copy: just store offset + count)
+        let mut num_db = 0u32;
+        let mut tables = [ReadTable::default(); NUM_TABLES];
+        let mut index = 24; // After 6 × u32 header fields
         for table in &mut tables {
-            let table_offset = unpack_u32(&buf[index..])?;
+            let table_offset = read_u32_le(buf, index) as usize;
             index += 4;
-            let table_num = unpack_u32(&buf[index..])?;
+            let table_num = read_u32_le(buf, index);
             index += 4;
             if table_offset > 0 {
-                let bucket = Self::read_bucket(buf, table_offset as usize, table_num as usize)?;
-                table.bucket = bucket;
+                // Validate that bucket data fits within the buffer
+                let end = table_offset + (table_num as usize) * 8;
+                if end > buf.len() {
+                    return Err(io::Error::other("invalid table data: out of bounds"));
+                }
+                table.offset = table_offset;
                 table.num = table_num;
             }
             // The number of records is the half of the table size
             num_db += table_num / 2;
         }
-        let bwd = if bwd_offset > 0 {
-            Self::read_backward_links(buf, bwd_offset as usize, num_db as usize)?
+
+        // Validate backward link array bounds
+        let bwd_offset = if bwd_offset_raw > 0 {
+            let off = bwd_offset_raw as usize;
+            let end = off + (bwd_size as usize) * 4;
+            if end > buf.len() {
+                return Err(io::Error::other("invalid backward link data: out of bounds"));
+            }
+            off
         } else {
-            Vec::new()
+            0
         };
+
         Ok(Self {
             buffer: buf,
             header,
             tables,
-            bwd,
+            bwd_offset,
             num: num_db,
         })
-    }
-
-    #[inline]
-    fn read_bucket(buf: &[u8], offset: usize, num: usize) -> io::Result<Vec<Bucket>> {
-        let mut buckets = Vec::with_capacity(num);
-        let mut index = offset;
-        for _ in 0..num {
-            let hash = unpack_u32(&buf[index..])?;
-            index += 4;
-            let offset = unpack_u32(&buf[index..])?;
-            index += 4;
-            buckets.push(Bucket { hash, offset });
-        }
-        Ok(buckets)
-    }
-
-    #[inline]
-    fn read_backward_links(buf: &[u8], offset: usize, num: usize) -> io::Result<Vec<u32>> {
-        let mut bwd = Vec::with_capacity(num);
-        let mut index = offset;
-        for _ in 0..num {
-            bwd.push(unpack_u32(&buf[index..])?);
-            index += 4;
-        }
-        Ok(bwd)
     }
 
     /// Get the number of associations in the database
@@ -240,30 +231,26 @@ impl<'a> CQDB<'a> {
     }
 
     /// Retrieve the identifier associated with a string
-    pub fn to_id(&self, s: &str) -> Option<u32> {
-        self.to_id_impl(s).unwrap_or_default()
-    }
-
     #[inline]
-    fn to_id_impl(&self, s: &str) -> io::Result<Option<u32>> {
+    pub fn to_id(&self, s: &str) -> Option<u32> {
         let hash = crate::hash::jhash(s.as_bytes(), s.len() as u32 + 1, 0);
-        let table_index = hash % NUM_TABLES as u32;
-        let table = &self.tables[table_index as usize];
-        if table.num > 0 && !table.bucket.is_empty() {
+        let table = &self.tables[(hash % NUM_TABLES as u32) as usize];
+        if table.num > 0 {
             let n = table.num;
+            let base = table.offset;
             let mut k = (hash >> 8) % n;
             loop {
-                let bucket = &table.bucket[k as usize];
-                if bucket.offset > 0 {
-                    if bucket.hash == hash {
-                        let mut index = bucket.offset as usize;
-                        let value = unpack_u32(&self.buffer[index..])?;
-                        index += 4;
-                        let ksize = unpack_u32(&self.buffer[index..])? - 1; // ksize includes NUL byte
-                        index += 4;
-                        let actual_str = &self.buffer[index..index + ksize as usize];
-                        if s.as_bytes() == actual_str {
-                            return Ok(Some(value));
+                let bucket_base = base + (k as usize) * 8;
+                let bucket_offset = read_u32_le(self.buffer, bucket_base + 4);
+                if bucket_offset > 0 {
+                    let bucket_hash = read_u32_le(self.buffer, bucket_base);
+                    if bucket_hash == hash {
+                        let rec = bucket_offset as usize;
+                        let value = read_u32_le(self.buffer, rec);
+                        let ksize = read_u32_le(self.buffer, rec + 4) as usize - 1; // ksize includes NUL
+                        let key_start = rec + 8;
+                        if s.as_bytes() == &self.buffer[key_start..key_start + ksize] {
+                            return Some(value);
                         }
                     }
                 } else {
@@ -272,33 +259,23 @@ impl<'a> CQDB<'a> {
                 k = (k + 1) % n;
             }
         }
-        Ok(None)
+        None
     }
 
     /// Retrieve the string associated with an identifier
-    pub fn to_str(&'a self, id: u32) -> Option<&'a BStr> {
-        self.to_str_impl(id).unwrap_or_default()
-    }
-
     #[inline]
-    fn to_str_impl(&'a self, id: u32) -> io::Result<Option<&'a BStr>> {
+    pub fn to_str(&'a self, id: u32) -> Option<&'a BStr> {
         // Check if the current database supports the backward lookup
-        if !self.bwd.is_empty() && id < self.header.bwd_size {
-            let id = id as usize;
-            debug_assert!(id < self.bwd.len());
-            let offset = self.bwd[id];
+        if self.bwd_offset > 0 && id < self.header.bwd_size {
+            let offset = read_u32_le(self.buffer, self.bwd_offset + (id as usize) * 4);
             if offset > 0 {
-                let mut index = offset as usize + 4; // Skip key data
-                let value_size = unpack_u32(&self.buffer[index..])? as usize - 1; // value_size includes NUL byte
-                index += 4;
-                let end = index + value_size;
-                debug_assert!(index < self.buffer.len() && end < self.buffer.len());
-                // Safety: asserted precondition
-                let buf = unsafe { self.buffer.get_unchecked(index..end) };
-                return Ok(Some(buf.as_bstr()));
+                let index = offset as usize + 4; // Skip id field
+                let value_size = read_u32_le(self.buffer, index) as usize - 1; // includes NUL
+                let start = index + 4;
+                return Some(self.buffer[start..start + value_size].as_bstr());
             }
         }
-        Ok(None)
+        None
     }
 
     /// An iterator visiting all id, string pairs in order.
@@ -318,16 +295,20 @@ impl<'a> Iterator for Iter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let id = self.next;
-        if let Some(s) = self.db.to_str_impl(id).transpose() {
+        if let Some(s) = self.db.to_str(id) {
             self.next += 1;
-            return Some(s.map(|x| (id, x)));
+            return Some(Ok((id, s)));
         }
         None
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.db.bwd.len();
-        (size, Some(size))
+        let remaining = if self.db.bwd_offset > 0 {
+            self.db.header.bwd_size.saturating_sub(self.next) as usize
+        } else {
+            0
+        };
+        (remaining, Some(remaining))
     }
 }
 
